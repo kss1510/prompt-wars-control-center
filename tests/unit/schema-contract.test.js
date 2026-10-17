@@ -36,3 +36,39 @@ test('leaderboard views expose aggregate standings only to authenticated users',
   assert.match(sql, /create or replace view public\.leaderboard_round_scores with \(security_invoker = false\)/i);
   assert.match(sql, /grant select on public\.leaderboard, public\.leaderboard_round_scores to authenticated/i);
 });
+
+const migrations = await Promise.all((await (await import('node:fs/promises')).readdir(new URL('../../supabase/migrations/', import.meta.url)))
+  .filter(f => f.endsWith('.sql')).sort()
+  .map(f => readFile(new URL(`../../supabase/migrations/${f}`, import.meta.url), 'utf8')));
+const migrationSql = migrations.join('\n');
+
+test('database round seed matches the rubric shown in the app', async () => {
+  const { ROUNDS } = await import('../../src/data.js');
+  for (const round of ROUNDS) {
+    const maxima = round.criteria.map(c => c.max).join(',');
+    assert.match(migrationSql, new RegExp(String.raw`\(${round.id},\s*'${round.name}',\s*${round.max},\s*'\{${maxima}\}',\s*${round.minutes}\)`),
+      `rounds seed for ${round.name} must match src/data.js`);
+  }
+});
+
+test('platform reuse is prevented by a database constraint, not only the UI', () => {
+  assert.match(migrationSql, /constraint team_platform_once unique \(team_id, platform_id\)/i);
+  assert.match(migrationSql, /primary key \(team_id, round_id\)/i);
+  assert.match(migrationSql, /submissions_platform_declared[\s\S]*?references public\.team_round_platforms/i);
+});
+
+test('anon receives no table or function privileges after the migration', () => {
+  assert.match(migrationSql, /revoke all on all tables in schema public from anon;/i);
+  assert.match(migrationSql, /revoke all on all functions in schema public from public, anon, authenticated;/i);
+  assert.doesNotMatch(migrationSql, /grant [^;]* to anon/i);
+});
+
+test('no secrets or service-role keys are committed in SQL or source', async () => {
+  const { readdir } = await import('node:fs/promises');
+  const files = ['../../src/App.jsx', '../../src/lib/supabase.js', '../../.env.example',
+    ...(await readdir(new URL('../../src/lib/', import.meta.url))).map(f => `../../src/lib/${f}`)];
+  for (const f of files) {
+    const text = await readFile(new URL(f, import.meta.url), 'utf8');
+    assert.doesNotMatch(text, /service_role\s*[:=]\s*['"]?ey|sb_secret_[A-Za-z0-9]/, `${f} must not contain secret keys`);
+  }
+});

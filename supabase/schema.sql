@@ -1,6 +1,14 @@
--- Prompt Wars Control Center schema
--- Run this entire file in Supabase Dashboard > SQL Editor.
--- Do not put a service-role key in the frontend.
+-- Prompt Wars Control Center schema (BASELINE)
+-- Run this entire file in Supabase Dashboard > SQL Editor on a NEW project, then run every
+-- file in supabase/migrations/ in filename order. Do not put a service-role key in the frontend.
+--
+-- Never re-run this file on a database that already has the migrations: it would restore the
+-- older scoring trigger, policies and grants. The guard below stops that from happening.
+do $$ begin
+  if to_regclass('public.rounds') is not null then
+    raise exception 'This database already has the event-readiness migration. Do not re-run schema.sql; re-run the migration files instead.';
+  end if;
+end $$;
 
 create extension if not exists pgcrypto;
 
