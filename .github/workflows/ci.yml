@@ -10,7 +10,7 @@ on:
 jobs:
   build-unit-and-browser:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -23,11 +23,13 @@ jobs:
         run: npm ci
       - name: Check production build
         run: npm run build
-      - name: Test round rubrics and database schema contracts
+      - name: Test round rubrics, event rules and schema contracts
         run: npm run test:unit
+      - name: Test RLS, triggers and RPCs in Postgres (PGlite, no Supabase project)
+        run: npm run test:db
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
-      - name: Test login and signup UI
+      - name: Test signed-out UI and the demo-mode event workflow
         run: npm run test:e2e
       - name: Upload Playwright report on failure
         if: failure()
@@ -39,3 +41,25 @@ jobs:
             test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  # Optional: real Supabase RLS checks against a dedicated STAGING project (never the live event).
+  # Enable by setting repository variable PW_RUN_SUPABASE_TESTS=1 and the PW_TEST_* secrets.
+  supabase-staging:
+    if: ${{ vars.PW_RUN_SUPABASE_TESTS == '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Test staging Supabase RLS with a student test account
+        run: npm run test:supabase
+        env:
+          PW_RUN_SUPABASE_TESTS: '1'
+          PW_TEST_SUPABASE_URL: ${{ secrets.PW_TEST_SUPABASE_URL }}
+          PW_TEST_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.PW_TEST_SUPABASE_PUBLISHABLE_KEY }}
+          PW_TEST_STUDENT_EMAIL: ${{ secrets.PW_TEST_STUDENT_EMAIL }}
+          PW_TEST_STUDENT_PASSWORD: ${{ secrets.PW_TEST_STUDENT_PASSWORD }}

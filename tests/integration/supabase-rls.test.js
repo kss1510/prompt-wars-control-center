@@ -80,3 +80,46 @@ test('staging student cannot submit to a team they are not assigned to', { skip:
   assert.ok(submitError || !inserted?.length, 'student must not submit to a non-member team');
   await supabase.auth.signOut();
 });
+
+// --- Event-readiness migration checks (require supabase/migrations applied on staging) ---
+
+test('staging: signed-out (anon) clients cannot read event tables or standings', { skip: !ready }, async () => {
+  const anon = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  for (const table of ['teams', 'submissions', 'scores', 'leaderboard', 'team_round_platforms', 'audit_log']) {
+    const { data, error } = await anon.from(table).select('*').limit(1);
+    assert.ok(error || !data?.length, `anon must not read ${table}`);
+  }
+});
+
+test('staging: student cannot score, control rounds, change roles or finalize teams', { skip: !ready }, async () => {
+  const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  const { data: authData, error } = await supabase.auth.signInWithPassword({ email, password });
+  assert.ifError(error);
+  const userId = authData.user.id;
+  const checks = [
+    supabase.rpc('host_update_round', { p_round: 1, p_status: 'open', p_minutes: 5 }),
+    supabase.rpc('host_set_role', { p_user: userId, p_role: 'host' }),
+    supabase.rpc('host_set_teams_locked', { p_locked: true }),
+    supabase.rpc('save_scores', { p_submission: 1, p_points: [1, 1, 1], p_feedback: null }),
+    supabase.from('scores').insert({ submission_id: 1, criterion_index: 0, points: 1 }).select('id'),
+    supabase.from('ai_platforms').insert({ name: `pw-denied-${Date.now()}` }).select('id'),
+    supabase.from('event_settings').update({ teams_locked: true }).eq('id', true).select('id')
+  ];
+  for (const [i, result] of (await Promise.all(checks)).entries()) {
+    assert.ok(result.error || !result.data?.length, `forbidden operation #${i} must be rejected`);
+  }
+  await supabase.auth.signOut();
+});
+
+test('staging: a student cannot declare a platform their team used in another round', { skip: !ready }, async (t) => {
+  const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  assert.ifError(error);
+  const { data: picks } = await supabase.from('team_round_platforms').select('round_id,platform_id');
+  if (!picks?.length) { t.skip('Declare a platform for one round with the staging student first.'); return; }
+  const otherRound = [1, 2, 3, 4].find(r => r !== picks[0].round_id);
+  const { error: dupError } = await supabase.rpc('select_round_platform', { p_round: otherRound, p_platform: picks[0].platform_id });
+  assert.ok(dupError, 'duplicate platform declaration must be rejected');
+  assert.match(dupError.message, /already used|closed/);
+  await supabase.auth.signOut();
+});
