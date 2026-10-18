@@ -105,7 +105,7 @@ export default function App() {
     ? <DemoPersonaScreen personas={api.personas()} pick={id=>api.auth.signIn(id)} onReset={()=>{api.reset();say('Demo data reset.');}} notice={notice}/>
     : <AuthScreen api={api} />;
   if(loading&&!d) return <div className="center-screen"><div className="spinner"/><p>Loading your event workspace…</p></div>;
-  if(error&&!d) return <div className="center-screen"><div className="auth-card"><ShieldCheck size={34}/><h1>Account setup incomplete</h1><p>{error}</p><p>Confirm your email if required, then sign in again. If this persists, ask the host to check the database setup and migrations.</p><button className="button primary" onClick={loadData}>Retry</button><button className="button" onClick={signOut}>Sign out</button></div></div>;
+  if(error&&!d) return <div className="center-screen"><div className="auth-card"><ShieldCheck size={34}/><h1>Account setup incomplete</h1><p>{error}</p><p>Sign out and sign in again. If this persists, ask the host to check the database setup and migrations.</p><button className="button primary" onClick={loadData}>Retry</button><button className="button" onClick={signOut}>Sign out</button></div></div>;
 
   const {profile,isHost,isStaff}=ctx;
   const nav=NAV.filter(n=>(!n.host||isHost)&&(!n.staff||isStaff));
