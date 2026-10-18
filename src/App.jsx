@@ -17,6 +17,7 @@ import { PlatformsPage } from './pages/Platforms';
 import { SettingsPage } from './pages/Settings';
 import { ForgePage } from './pages/Forge';
 import { CheckCircle2, ChevronRight, ClipboardList, Code2, Cpu, FlaskConical, Grid3x3, LayoutDashboard, LogOut, RefreshCw, Settings, ShieldCheck, Trophy, Users, WandSparkles, X } from 'lucide-react';
+import { Analytics } from '@vercel/analytics/react';
 
 const api = demoMode ? createDemoApi() : configured ? createSupabaseApi(supabase) : null;
 
@@ -134,6 +135,7 @@ export default function App() {
     {modal?.type==='review'&&<ReviewModal ctx={ctx} submissionId={modal.submissionId} close={()=>setModal(null)}/>}
     {modal?.type==='team'&&<TeamModal ctx={ctx} close={()=>setModal(null)}/>}
     {modal?.type==='import'&&<ImportModal ctx={ctx} close={()=>setModal(null)}/>}
+    <Analytics />
     <footer className="footer">Prompt Wars · {ctx.demo?'demo workspace (not real data)':'shared event workspace'} <span>·</span> 4 rounds <span>·</span> {MAX_TOTAL} possible points</footer>
   </div>;
 }
