@@ -72,3 +72,10 @@ test('no secrets or service-role keys are committed in SQL or source', async () 
     assert.doesNotMatch(text, /service_role\s*[:=]\s*['"]?ey|sb_secret_[A-Za-z0-9]/, `${f} must not contain secret keys`);
   }
 });
+
+test('Round 3 HTML is guarded as team work and the confirmed platforms and tie-break are seeded', () => {
+  assert.match(migrationSql, /old\.risks_mitigation, old\.artifact_html\)/);
+  assert.match(migrationSql, /length\(artifact_html\) <= 300000/);
+  assert.match(migrationSql, /\('DeepSeek'\), \('Microsoft Copilot'\), \('Perplexity'\)/);
+  assert.match(migrationSql, /tie_break_rule = 'Higher Round 4 score, then Round 3, then Round 2, then Round 1/);
+});

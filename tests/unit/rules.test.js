@@ -95,17 +95,24 @@ test('teams of four or five pass; other sizes are flagged without hardcoding a t
   assert.match(issues[0].message, /Solo has 1 member \(needs 4–5\)/);
 });
 
-test('leaderboard aggregates round points, shares ranks on ties and never invents a tie-break', () => {
-  const teams = [{ id: 1, name: 'A' }, { id: 2, name: 'B' }, { id: 3, name: 'C' }];
+test('leaderboard applies the confirmed tie-break: Round 4, then 3, 2, 1', () => {
+  const teams = [{ id: 1, name: 'A' }, { id: 2, name: 'B' }, { id: 3, name: 'C' }, { id: 4, name: 'D' }];
   const rows = [
+    // A and B: 45 each; B is ahead on Round 3 (Round 4 equal at 0).
     { team_id: 1, round_id: 1, points: 20, scored: true }, { team_id: 1, round_id: 2, points: 25, scored: true },
     { team_id: 2, round_id: 1, points: 25, scored: true }, { team_id: 2, round_id: 3, points: 20, scored: true },
-    { team_id: 3, round_id: 4, points: 30, scored: true }
+    // C and D: identical in every round -> genuinely tied, shared rank.
+    { team_id: 3, round_id: 4, points: 30, scored: true }, { team_id: 4, round_id: 4, points: 30, scored: true }
   ];
   const board = buildLeaderboard(teams, rows);
-  assert.deepEqual(board.map(r => [r.name, r.score, r.rank, r.tied]), [['A', 45, 1, true], ['B', 45, 1, true], ['C', 30, 3, false]]);
-  assert.deepEqual(board[0].rounds, { 1: 20, 2: 25, 3: 0, 4: 0 });
+  assert.deepEqual(board.map(r => [r.name, r.score, r.rank, r.tied]), [['B', 45, 1, false], ['A', 45, 2, false], ['C', 30, 3, true], ['D', 30, 3, true]]);
+  assert.equal(board[0].aheadOn, 3, 'B wins the tie-break on Round 3');
+  assert.deepEqual(board[1].rounds, { 1: 20, 2: 25, 3: 0, 4: 0 });
   assert.equal(board[0].scored, 2);
+  const r4 = buildLeaderboard(teams.slice(0, 2), [
+    { team_id: 1, round_id: 4, points: 10, scored: true }, { team_id: 1, round_id: 3, points: 30, scored: true },
+    { team_id: 2, round_id: 4, points: 20, scored: true }, { team_id: 2, round_id: 3, points: 20, scored: true }]);
+  assert.deepEqual(r4.map(r => [r.name, r.rank, r.aheadOn]), [['B', 1, 4], ['A', 2, undefined]], 'Round 4 is checked before Round 3');
 });
 
 test('the official two-hour window fits the 61 challenge minutes', () => {
@@ -128,7 +135,7 @@ test('readiness checks flag missing fourth platform, unlocked teams and unconfir
   const failed = checks.filter(c => !c.ok).map(c => c.label);
   assert.ok(failed.includes('At least 4 approved AI platforms'));
   assert.ok(failed.includes('Teams finalized'));
-  assert.ok(failed.includes('Tie-break rule confirmed'));
+  assert.ok(!failed.includes('Tie-break rule confirmed'), 'the confirmed tie-break is part of the defaults');
   assert.ok(checks.find(c => c.label.startsWith('Round durations')).ok);
 });
 
