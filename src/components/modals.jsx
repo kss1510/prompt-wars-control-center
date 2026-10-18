@@ -148,7 +148,7 @@ export function ImportModal({ctx,close}){
     if(result?.applied) close();
   }
   return <Modal title="Import roster" close={close} wide>
-    <p className="muted">Paste CSV lines <code>email,team,captain</code>. Participants must have registered (and confirmed) their accounts first. The import is all-or-nothing: if any line has a problem, nothing changes.</p>
+    <p className="muted">Paste CSV lines <code>email,team,captain</code>. Participants must have registered their accounts first. The import is all-or-nothing: if any line has a problem, nothing changes.</p>
     <Field label="Roster CSV"><textarea rows="8" value={text} onChange={e=>{setText(e.target.value);setReport(null);}} placeholder={'email,team,captain\nstudent1@gitam.in,Prompt Pioneers,yes\nstudent2@gitam.in,Prompt Pioneers'}/></Field>
     {parsed.errors.map(e=><p key={e} className="warn-text">{e}</p>)}
     {report&&<div className="table-wrap"><table><thead><tr><th>Line</th><th>Email</th><th>Team</th><th>Result</th></tr></thead><tbody>{report.rows.map((r,i)=><tr key={i}><td>{r.row??'—'}</td><td>{r.email||'—'}</td><td>{r.team}</td><td className={r.status==='error'?'warn-text':''}>{r.message}</td></tr>)}</tbody></table></div>}

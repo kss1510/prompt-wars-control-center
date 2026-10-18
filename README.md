@@ -137,7 +137,7 @@ other teams' work), so the Supabase advisor will keep listing them; they are onl
 
 ## Host account setup
 
-1. Register in the app and confirm the email.
+1. Register in the app.
 2. Supabase **Authentication → Users**: copy your user UUID.
 3. **SQL Editor** — promote only that account:
 
@@ -163,6 +163,19 @@ See [TESTING-AUTOMATION.md](TESTING-AUTOMATION.md) for what each suite proves, a
 [docs/EVENT-DAY.md](docs/EVENT-DAY.md) for the event-day runbook.
 
 ## Deploy
+
+**Live site:** https://prompt-wars-gitam.vercel.app (Vercel, auto-deploys on every push to `main`).
+Vercel environment variables: `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` only — never
+`VITE_DEMO_MODE`, never a secret key. Supabase **Auth → URL Configuration**: Site URL
+`https://prompt-wars-gitam.vercel.app`, redirect URLs `https://prompt-wars-gitam.vercel.app/**` and
+`http://localhost:5173/**`.
+
+**Email confirmation is OFF** (Supabase → Authentication → Sign In / Providers → Email → *Confirm email*),
+decided 18 Oct 2026: Supabase's built-in email service only sends a few emails per hour, which would block
+50–60 signups. This is acceptable because an account grants nothing by itself — the host assigns every
+student to a team, and roles can only be changed by a host. To re-enable it, configure custom SMTP first
+(Authentication → Emails → SMTP Settings, e.g. Resend).
+
 
 The event can run from a host laptop on the classroom network (`npm run dev` binds `0.0.0.0`), or as a
 static build (`npm run build`, deploy `dist/`) with the same two `VITE_*` variables. If deployed, set
