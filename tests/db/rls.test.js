@@ -9,7 +9,7 @@ async function eventFixture() {
   const host = await t.user('host', 'Host');
   const judge = await t.user('judge', 'Judge');
   const a = [await t.user(), await t.user(), await t.user(), await t.user()];
-  const b = [await t.user(), await t.user(), await t.user(), await t.user(), await t.user()];
+  const b = [await t.user(), await t.user(), await t.user(), await t.user()];
   const teamA = await t.team('Alpha', a);
   const teamB = await t.team('Bravo', b);
   const p = {
@@ -32,6 +32,8 @@ test('migration is re-runnable on top of the baseline schema', async () => {
   assert.deepEqual(names, ['ChatGPT', 'Claude', 'DeepSeek', 'Gemini', 'Microsoft Copilot', 'Perplexity']);
   const [{ tie_break_rule }] = await t.sql('select tie_break_rule from public.event_settings');
   assert.match(tie_break_rule, /^Higher Round 4 score, then Round 3, then Round 2, then Round 1/);
+  const [sizes] = await t.sql('select team_min_size, team_max_size from public.event_settings');
+  assert.deepEqual(sizes, { team_min_size: 3, team_max_size: 4 }, 'confirmed team size 3–4');
   const rounds = await t.sql('select id, max_points, criteria_max from public.rounds order by id');
   assert.deepEqual(rounds.map(r => [r.id, r.max_points]), [[1, 25], [2, 30], [3, 35], [4, 40]]);
   for (const r of rounds) assert.equal(r.criteria_max.reduce((x, y) => x + y, 0), r.max_points);
@@ -279,7 +281,7 @@ test('hosts can hide standings from students (scores included) but staff still s
 test('team size limits, captain rules and team freeze are enforced', async () => {
   const { t, host, a, b, teamA, teamB } = await eventFixture();
   const extra = await t.user();
-  await t.reject(host, 'insert into public.team_members (team_id, user_id) values ($1, $2)', [teamB, extra], /maximum 5/);
+  await t.reject(host, 'insert into public.team_members (team_id, user_id) values ($1, $2)', [teamB, extra], /maximum 4/);
   await t.reject(host, 'update public.teams set captain_id = $2 where id = $1', [teamA, b[0]], /captain must be a member/);
   await t.as(host, 'update public.teams set captain_id = $2 where id = $1', [teamA, a[0]]);
   const small = await t.team('Charlie', [extra]);
@@ -332,7 +334,7 @@ test('roster import validates everything first and applies all-or-nothing', asyn
   const tooMany = [4, 5].map(i => ({ email: `imp${i}@test.local`, team: 'Imported' }));
   const [{ host_import_roster: over }] = await t.as(host, 'select public.host_import_roster($1::jsonb, false)', [JSON.stringify(tooMany)]);
   assert.equal(over.ok, false);
-  assert.match(JSON.stringify(over.rows), /exceed 5/);
+  assert.match(JSON.stringify(over.rows), /exceed 4/);
 });
 
 async function teamOf(t, userId) {

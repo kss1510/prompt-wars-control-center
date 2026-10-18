@@ -208,10 +208,10 @@ test('host team management: create, rename, captain, and finalize only with vali
   await dialog.getByRole('button', { name: 'Create team' }).click();
   await expect(page.getByText('Team created.')).toBeVisible();
   const comet = page.getByTestId('team-Demo Team Comet');
-  await expect(comet).toContainText('1/5 MEMBERS');
+  await expect(comet).toContainText('1/4 MEMBERS');
 
   await page.getByRole('button', { name: 'Finalize teams' }).click();
-  await expect(page.getByRole('alert')).toContainText('Demo Team Comet has 1 member (needs 4–5)');
+  await expect(page.getByRole('alert')).toContainText('Demo Team Comet has 1 member (needs 3–4)');
 
   await comet.getByRole('button', { name: 'Rename Demo Team Comet' }).click();
   await comet.getByLabel('Team name').fill('Demo Team Meteor');
@@ -234,16 +234,16 @@ test('roster import validates every line before applying', async ({ page }) => {
   await nav(page, 'Teams');
   await page.getByRole('button', { name: 'Import roster' }).click();
   const dialog = page.getByRole('dialog', { name: 'Import roster' });
-  await dialog.getByLabel('Roster CSV').fill('email,team,captain\ndemo-unassigned@demo.local,Demo Team Nova,\nnobody@demo.local,Demo Team Nova');
+  await dialog.getByLabel('Roster CSV').fill('email,team,captain\ndemo-unassigned@demo.local,Demo Team Orbit,\nnobody@demo.local,Demo Team Orbit');
   await dialog.getByRole('button', { name: 'Check roster' }).click();
   await expect(dialog).toContainText('No registered account with this email.');
   await expect(dialog.getByRole('button', { name: /Import 2 rows/ })).toBeDisabled();
-  await dialog.getByLabel('Roster CSV').fill('demo-unassigned@demo.local,Demo Team Nova');
+  await dialog.getByLabel('Roster CSV').fill('demo-unassigned@demo.local,Demo Team Orbit');
   await dialog.getByRole('button', { name: 'Check roster' }).click();
   await expect(dialog).toContainText('Will be added.');
   await dialog.getByRole('button', { name: /Import 1 rows/ }).click();
   await expect(page.getByText('Roster imported.')).toBeVisible();
-  await expect(page.getByTestId('team-Demo Team Nova')).toContainText('5/5 MEMBERS');
+  await expect(page.getByTestId('team-Demo Team Orbit')).toContainText('4/4 MEMBERS');
 });
 
 test('host can hide standings from students and set a tie-break rule', async ({ page }) => {

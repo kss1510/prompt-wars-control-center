@@ -59,8 +59,8 @@ export const EVENT_DEFAULTS = {
   venue: 'ICT Classroom, GITAM University',
   starts_at: '2026-10-23T15:00:00+05:30',
   ends_at: '2026-10-23T17:00:00+05:30',
-  team_min_size: 4,
-  team_max_size: 5,
+  team_min_size: 3,
+  team_max_size: 4,
   teams_locked: false,
   leaderboard_visible: true,
   tie_break_rule: 'Higher Round 4 score, then Round 3, then Round 2, then Round 1. Teams equal in every round share the rank (organizers decide).'
