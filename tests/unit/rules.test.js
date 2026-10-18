@@ -85,14 +85,15 @@ test('scoreError enforces criterion count, integers and per-criterion maxima', (
   assert.match(scoreError(3, [-1, 1, 1]), /between 0/);
 });
 
-test('teams of four or five pass; other sizes are flagged without hardcoding a team count', () => {
-  const teams = Array.from({ length: 13 }, (_, i) => ({ id: i + 1, name: `T${i + 1}` }));
+test('teams of three or four pass; other sizes are flagged without hardcoding a team count', () => {
+  const teams = Array.from({ length: 15 }, (_, i) => ({ id: i + 1, name: `T${i + 1}` }));
   const memberships = [];
-  teams.forEach((t, i) => { for (let m = 0; m < (i < 10 ? 4 : 5); m++) memberships.push({ team_id: t.id, user_id: `${t.id}-${m}` }); });
-  assert.deepEqual(teamSizeIssues(teams, memberships, 4, 5), [], '10 teams of 4 + 3 teams of 5 = 55 participants');
-  const issues = teamSizeIssues([...teams, { id: 99, name: 'Solo' }], [...memberships, { team_id: 99, user_id: 'x' }], 4, 5);
-  assert.equal(issues.length, 1);
-  assert.match(issues[0].message, /Solo has 1 member \(needs 4–5\)/);
+  teams.forEach((t, i) => { for (let m = 0; m < (i < 10 ? 3 : 4); m++) memberships.push({ team_id: t.id, user_id: `${t.id}-${m}` }); });
+  assert.equal(memberships.length, 50);
+  assert.deepEqual(teamSizeIssues(teams, memberships, 3, 4), [], '10 teams of 3 + 5 teams of 4 = 50 participants');
+  const extra = [...memberships, { team_id: 1, user_id: 'a' }, { team_id: 1, user_id: 'b' }, { team_id: 99, user_id: 'x' }];
+  const issues = teamSizeIssues([...teams, { id: 99, name: 'Solo' }], extra, 3, 4);
+  assert.deepEqual(issues.map(i => i.message), ['T1 has 5 members (needs 3–4).', 'Solo has 1 member (needs 3–4).']);
 });
 
 test('leaderboard applies the confirmed tie-break: Round 4, then 3, 2, 1', () => {

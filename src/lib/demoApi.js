@@ -4,7 +4,7 @@
 import { ROUNDS, EVENT_DEFAULTS, SUBMISSION_FIELDS } from '../data.js';
 import { missingDeliverables, platformChoiceError, scoreError, isRoundAccepting, isRoundClosed, teamSizeIssues, roundFor } from './rules.js';
 
-const KEY = 'pw-demo-v1';
+const KEY = 'pw-demo-v2'; // v2: teams of 3–4
 const now = () => new Date().toISOString();
 const persona = (id, full_name, role) => ({ id, full_name, email: `${id}@demo.local`, role });
 
@@ -13,8 +13,10 @@ function seed() {
     persona('demo-host', 'Demo Host', 'host'),
     persona('demo-judge', 'Demo Judge', 'judge'),
     ...['Asha', 'Bilal', 'Chitra', 'Dev'].map((n, i) => persona(`demo-nova-${i + 1}`, `${n} (demo)`, 'student')),
-    ...['Esha', 'Farhan', 'Gauri', 'Hari', 'Isha'].map((n, i) => persona(`demo-orbit-${i + 1}`, `${n} (demo)`, 'student')),
-    persona('demo-unassigned', 'Jay (demo, unassigned)', 'student')
+    ...['Esha', 'Farhan', 'Gauri'].map((n, i) => persona(`demo-orbit-${i + 1}`, `${n} (demo)`, 'student')),
+    persona('demo-unassigned', 'Jay (demo, unassigned)', 'student'),
+    persona('demo-unassigned-2', 'Hari (demo, unassigned)', 'student'),
+    persona('demo-unassigned-3', 'Isha (demo, unassigned)', 'student')
   ];
   const teams = [
     { id: 1, name: 'Demo Team Nova', captain_id: 'demo-nova-1', created_at: now() },
@@ -22,7 +24,7 @@ function seed() {
   ];
   const memberships = [
     ...[1, 2, 3, 4].map(i => ({ team_id: 1, user_id: `demo-nova-${i}`, created_at: now() })),
-    ...[1, 2, 3, 4, 5].map(i => ({ team_id: 2, user_id: `demo-orbit-${i}`, created_at: now() }))
+    ...[1, 2, 3].map(i => ({ team_id: 2, user_id: `demo-orbit-${i}`, created_at: now() }))
   ];
   return {
     seq: 100,

@@ -10,7 +10,7 @@ only gives friendly feedback.
 ## Features
 
 - Email/password accounts (Supabase Auth). Roles `student`, `judge`, `host`; signup always creates `student`.
-- Teams of **4–5** (configurable), captains, roster CSV import/export, host-controlled **team freeze**.
+- Teams of **3–4** (configurable; confirmed 18 Oct 2026), captains, roster CSV import/export, host-controlled **team freeze**.
 - **Different AI platform every round** per team, enforced by a database unique constraint (see policy below).
 - Round-specific deliverables, deadlines on the database clock, one active submission per team per round.
 - Criterion-level judging validated against each rubric in the database; database-computed leaderboard
@@ -103,7 +103,7 @@ migrated database.
 
 | Object | Purpose |
 |---|---|
-| `event_settings` | Event window, team size limits (4–5), `teams_locked`, `leaderboard_visible`, `tie_break_rule` |
+| `event_settings` | Event window, team size limits (3–4 since `20261018120000_team_size_3_4.sql`), `teams_locked`, `leaderboard_visible`, `tie_break_rule` |
 | `rounds` | Rubric maxima (read by the score trigger), duration, `upcoming/open/closed`, `opens_at`/`closes_at` |
 | `ai_platforms` | Approved platform list (hosts add/deactivate) |
 | `team_round_platforms` | One declared platform per team-round; unique per team |
