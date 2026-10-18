@@ -15,7 +15,8 @@ import { TeamsPage } from './pages/Teams';
 import { RoundsPage } from './pages/Rounds';
 import { PlatformsPage } from './pages/Platforms';
 import { SettingsPage } from './pages/Settings';
-import { CheckCircle2, ChevronRight, ClipboardList, Cpu, FlaskConical, Grid3x3, LayoutDashboard, LogOut, RefreshCw, Settings, ShieldCheck, Trophy, Users, WandSparkles, X } from 'lucide-react';
+import { ForgePage } from './pages/Forge';
+import { CheckCircle2, ChevronRight, ClipboardList, Code2, Cpu, FlaskConical, Grid3x3, LayoutDashboard, LogOut, RefreshCw, Settings, ShieldCheck, Trophy, Users, WandSparkles, X } from 'lucide-react';
 
 const api = demoMode ? createDemoApi() : configured ? createSupabaseApi(supabase) : null;
 
@@ -26,6 +27,7 @@ const NAV = [
   {id:'leaderboard',label:'Leaderboard',icon:Trophy},
   {id:'teams',label:'Teams',icon:Users,host:true},
   {id:'rounds',label:'Rounds & scoring',icon:WandSparkles},
+  {id:'forge',label:'Round 3 checker',icon:Code2},
   {id:'platforms',label:'AI platforms',icon:Cpu},
   {id:'settings',label:'Event settings',icon:Settings,host:true}
 ];
@@ -124,6 +126,7 @@ export default function App() {
         {currentPage==='rounds'&&<RoundsPage ctx={ctx}/>}
         {currentPage==='platforms'&&<PlatformsPage ctx={ctx}/>}
         {currentPage==='settings'&&<SettingsPage ctx={ctx}/>}
+        {currentPage==='forge'&&<ForgePage ctx={ctx}/>}
         {loading&&<div className="refresh-line"><RefreshCw size={14}/> Refreshing shared data…</div>}
       </main>
     </div>

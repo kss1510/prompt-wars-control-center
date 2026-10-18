@@ -27,7 +27,11 @@ const choose = (t, user, round, platform) =>
 test('migration is re-runnable on top of the baseline schema', async () => {
   const t = await createDb({ migrateTwice: true });
   const [{ n }] = await t.sql('select count(*)::int n from public.ai_platforms');
-  assert.equal(n, 3, 'seeding must not duplicate platforms');
+  assert.equal(n, 6, 'seeding must not duplicate platforms');
+  const names = (await t.sql('select name from public.ai_platforms order by name')).map(r => r.name);
+  assert.deepEqual(names, ['ChatGPT', 'Claude', 'DeepSeek', 'Gemini', 'Microsoft Copilot', 'Perplexity']);
+  const [{ tie_break_rule }] = await t.sql('select tie_break_rule from public.event_settings');
+  assert.match(tie_break_rule, /^Higher Round 4 score, then Round 3, then Round 2, then Round 1/);
   const rounds = await t.sql('select id, max_points, criteria_max from public.rounds order by id');
   assert.deepEqual(rounds.map(r => [r.id, r.max_points]), [[1, 25], [2, 30], [3, 35], [4, 40]]);
   for (const r of rounds) assert.equal(r.criteria_max.reduce((x, y) => x + y, 0), r.max_points);
@@ -343,4 +347,20 @@ test('re-running the baseline schema.sql after the migration is refused', async 
   await assert.rejects(t.db.exec(baseline), /Do not re-run schema\.sql/);
   const [{ n }] = await t.sql(`select count(*)::int n from pg_policies where policyname = 'hosts edit submissions'`);
   assert.equal(n, 0, 'old policies must not come back');
+});
+
+test('Round 3 HTML is stored with the submission and follows the team-work edit rules', async () => {
+  const { t, judge, a, p } = await eventFixture();
+  const team = await teamOf(t, a[0]);
+  await t.openRound(3);
+  await choose(t, a[0], 3, p.claude);
+  const html = '<!DOCTYPE html><title>App</title><p>hi</p>';
+  const [{ id }] = await t.as(a[0], ...insertSubmission(team, 3, { ...VALID[3], artifact_html: html }));
+  assert.equal((await t.as(judge, 'select artifact_html from public.submissions where id=$1', [id]))[0].artifact_html, html);
+  await t.as(a[1], `update public.submissions set artifact_html = $2 where id = $1`, [id, html + '<p>v2</p>']);
+  await t.reject(judge, `update public.submissions set artifact_html = 'x' where id = $1`, [id], /Judges cannot edit/);
+  await t.reject(a[0], `update public.submissions set artifact_html = $2 where id = $1`, [id, 'x'.repeat(300001)], /artifact_html_length/);
+  await t.as(judge, `update public.submissions set status = 'Under review' where id = $1`, [id]);
+  const changed = await t.as(a[0], `update public.submissions set artifact_html = 'late' where id = $1 returning id`, [id]);
+  assert.equal(changed.length, 0, 'no edits once review starts');
 });

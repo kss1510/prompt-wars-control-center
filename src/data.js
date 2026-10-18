@@ -34,6 +34,7 @@ export const ROUNDS = [
       { key:'artifact_filename', label:'HTML / project file name', required:true, placeholder:'e.g. pomodoro.html' },
       { key:'demo_details', label:'Local demo details', required:true, placeholder:'Seat/laptop and how to open it, e.g. “Seat 12 · open pomodoro.html in Chrome”' },
       { key:'evidence_url', label:'Screenshot link (optional, must be shareable — not localhost)', placeholder:'https://…' },
+      { key:'artifact_html', label:'Your HTML file (recommended — lets judges open your app)', html:true },
       NOTES
     ],
     criteria: [{name:'Working functionality',max:15},{name:'Required features',max:10},{name:'Usability and visual clarity',max:10}] },
@@ -62,9 +63,13 @@ export const EVENT_DEFAULTS = {
   team_max_size: 5,
   teams_locked: false,
   leaderboard_visible: true,
-  tie_break_rule: null
+  tie_break_rule: 'Higher Round 4 score, then Round 3, then Round 2, then Round 1. Teams equal in every round share the rank (organizers decide).'
 };
+
+// Organizer-confirmed tie-break order (18 Oct 2026): higher Round 4 score first, then 3, 2, 1.
+export const TIE_BREAK_ORDER = [4, 3, 2, 1];
+export const TIE_BREAK_TEXT = 'Higher Round 4 score, then Round 3, then Round 2, then Round 1. Teams equal in every round share the rank (organizers decide).';
 
 export const STATUSES = ['Submitted', 'Under review', 'Scored', 'Rejected'];
 export const SUBMISSION_FIELDS = ['title','prompt_text','output_text','notes','analysis_text','evidence_text',
-  'artifact_filename','demo_details','evidence_url','initial_plan','revised_plan','risks_mitigation'];
+  'artifact_filename','demo_details','evidence_url','initial_plan','revised_plan','risks_mitigation','artifact_html'];

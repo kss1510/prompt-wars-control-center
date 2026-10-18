@@ -15,6 +15,11 @@ only gives friendly feedback.
 - Round-specific deliverables, deadlines on the database clock, one active submission per team per round.
 - Criterion-level judging validated against each rubric in the database; database-computed leaderboard
   that counts only fully scored, non-rejected work; ties are shown, never silently broken.
+- **Round 3 HTML checker & live preview** (no AI): explains HTML/CSS/JavaScript errors with line numbers and
+  runs the app in a sandbox; the file is saved with the submission so judges can open the real app.
+- **Judge auto-checks** for every round (prompt length, test counts, checker result, plan change…) —
+  advisory only; judges give the official score.
+- Leaderboard updates live and applies the confirmed **tie-break: Round 4 → 3 → 2 → 1** automatically.
 - Round tracker (team × round: platform + status), judging queue, readiness checklist, audit log,
   CSV exports and full JSON backup.
 - **Demo mode** for rehearsal with sample data that never touches Supabase.
@@ -35,9 +40,9 @@ configurable under **Event settings**.) Hosts can change each round's minutes wh
 ## AI platform policy
 
 - Each team declares **one approved AI platform per round** and may **not reuse** it in another round.
-- The approved list is organizer-managed (**AI platforms** page). ChatGPT, Gemini and Claude are seeded.
-  **The fourth platform is not seeded — organizers must confirm and add it.** Until then the readiness
-  checklist and the platforms page show a warning, and Round 4 will have no valid option for most teams.
+- The approved list is organizer-managed (**AI platforms** page). Confirmed 18 Oct 2026: **ChatGPT, Gemini,
+  Claude, DeepSeek**, plus **Microsoft Copilot** and **Perplexity** as backups (six in total, so a team
+  still has options if one service is down or blocked on the campus network).
 - A team can change its choice until it submits that round or the round closes. After that only a host can
   correct it, with a reason recorded in the audit log; the correction follows through to the submission.
 - A **rejected** submission does not strand a platform: the declaration belongs to the team-round, so the
@@ -55,7 +60,14 @@ hosting is **not** required. A localhost URL only works on the machine running i
 treats one as evidence — it rejects localhost links in the evidence field. Required instead: the file name
 and **local demo details** (seat/laptop and how to open it). A judge verifies at the team's seat and ticks
 **Local demo verified** on the submission. A screenshot link (shareable URL) is optional.
-File uploads are not implemented.
+
+**Round 3 checker** (sidebar → *Round 3 checker*): teams paste or load their single `.html` file while
+building. The checker is deterministic (no AI), so it does not count as an AI platform and does not give
+teams an extra "debugging prompt". The preview iframe runs with `sandbox="allow-scripts allow-forms
+allow-modals"` and **without** same-origin access, so a team's code cannot read the portal's sign-in session;
+`localStorage` is replaced by an in-memory stand-in inside the preview. Attaching the HTML to the Round 3
+submission is recommended (up to 300,000 characters): judges then see the checker result and can run the
+exact app from the review screen.
 
 ## Local setup (Windows PowerShell)
 
@@ -104,6 +116,24 @@ migrated database.
 
 The two leaderboard views stay `security_invoker = false` on purpose (aggregate standings without exposing
 other teams' work), so the Supabase advisor will keep listing them; they are only granted to signed-in users.
+
+### What `20261018090000_round3_workspace.sql` adds
+
+| Object | Purpose |
+|---|---|
+| `submissions.artifact_html` | The team's single-file app (optional, ≤ 300,000 chars); edit rules identical to other team work |
+| `ai_platforms` rows | DeepSeek, Microsoft Copilot, Perplexity |
+| `event_settings.tie_break_rule` | Confirmed tie-break text (only set if empty) |
+
+## Judging and tie-break
+
+- Judges see **Auto-checks** above the rubric: deliverables complete, timing vs deadline, and per round —
+  R1 prompt length and rank among the shortest; R2 number of test lines and analysis length; R3 checker
+  result, HTML attached, demo verified; R4 plan sizes and how much the revised plan changed. These are
+  facts to help judging; they never set a score. AI auto-scoring was deliberately not built (Round 2
+  entries test prompt manipulation and could manipulate an AI judge).
+- Tie-break (confirmed 18 Oct 2026): higher Round 4 score, then Round 3, 2, 1. The leaderboard applies it
+  automatically and shows "Ahead on tie-break (Round N)". Teams equal in every round share the rank.
 
 ## Host account setup
 

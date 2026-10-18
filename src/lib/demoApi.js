@@ -30,7 +30,7 @@ function seed() {
     settings: { ...EVENT_DEFAULTS },
     rounds: ROUNDS.map(r => ({ id: r.id, name: r.name, max_points: r.max, criteria_max: r.criteria.map(c => c.max),
       duration_minutes: r.minutes, status: 'upcoming', opens_at: null, closes_at: null })),
-    platforms: ['ChatGPT', 'Gemini', 'Claude'].map((name, i) => ({ id: i + 1, name, is_active: true })),
+    platforms: ['ChatGPT', 'Gemini', 'Claude', 'DeepSeek', 'Microsoft Copilot', 'Perplexity'].map((name, i) => ({ id: i + 1, name, is_active: true })),
     selections: [], submissions: [], scores: [], audit: []
   };
 }

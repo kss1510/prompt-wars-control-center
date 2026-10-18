@@ -1,8 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import { ROUNDS } from '../data';
 import { missingDeliverables, platformOptions, scoreError, isRoundAccepting, isRoundClosed, roundFor, parseRosterCsv } from '../lib/rules';
+import { autoChecks } from '../lib/autoChecks';
 import { Field, Modal, RoundState, StatusBadge, fmtDate } from './ui';
-import { AlertTriangle, CheckCircle2, MonitorSmartphone } from 'lucide-react';
+import { ArtifactWorkbench } from './ArtifactWorkbench';
+import { readForgeDraft } from '../pages/Forge';
+import { AlertTriangle, CheckCircle2, CircleAlert, Info, MonitorSmartphone } from 'lucide-react';
 
 /** Platform picker for one team-round. Shows used platforms disabled with the round they were used in. */
 export function PlatformPicker({ctx,teamId,roundId,compact}){
@@ -66,7 +69,9 @@ export function SubmissionModal({ctx,roundId:initialRound,teamId:initialTeam,sub
     {teamId&&(existing?<p className="muted">AI platform: <b>{ctx.platformName(existing.platform_id)}</b> (declared by your team; recorded with this submission)</p>:<PlatformPicker ctx={ctx} teamId={teamId} roundId={roundId}/>)}
     <p className="hint">The platform is what your team declares it used. The portal records and enforces the declaration; it cannot detect which AI tool was actually used.</p>
     <Field label="Submission title"><input maxLength="100" value={form.title||''} onChange={e=>set('title',e.target.value)} placeholder="e.g. Pomodoro timer v1"/></Field>
-    {round.fields.map(f=><Field key={f.key} label={`${f.label}${f.required?' *':''}`}>{f.long?<textarea value={form[f.key]||''} onChange={e=>set(f.key,e.target.value)} placeholder={f.placeholder}/>:<input value={form[f.key]||''} onChange={e=>set(f.key,e.target.value)} placeholder={f.placeholder}/>}</Field>)}
+    {round.fields.map(f=>f.html
+      ?<div key={f.key} className="field"><span>{f.label}</span>{!form[f.key]&&readForgeDraft()&&<button type="button" className="button small" onClick={()=>set(f.key,readForgeDraft())}>Use my draft from the HTML checker</button>}<ArtifactWorkbench value={form[f.key]||''} onChange={v=>set(f.key,v)} label="HTML file contents"/></div>
+      :<Field key={f.key} label={`${f.label}${f.required?' *':''}`}>{f.long?<textarea value={form[f.key]||''} onChange={e=>set(f.key,e.target.value)} placeholder={f.placeholder}/>:<input value={form[f.key]||''} onChange={e=>set(f.key,e.target.value)} placeholder={f.placeholder}/>}</Field>)}
     {problems.length>0&&<div className="alert error" role="alert"><div><b>Please fix before submitting:</b><ul>{problems.map(p=><li key={p}>{p}</li>)}</ul></div></div>}
     <div className="modal-actions"><button type="button" className="button" onClick={close}>Cancel</button><button disabled={saving||!accepting||!teamId} className="button primary">{saving?'Saving…':existing?'Save changes':'Submit for review'}</button></div>
     {!teamId&&<p className="muted">You need an assigned team before submitting. Ask the event host.</p>}
@@ -95,7 +100,9 @@ export function ReviewModal({ctx,submissionId,close}){
   return <Modal title={s.title} close={close} wide>
     <div className="review-meta"><span><b>{ctx.teamName(s.team_id)}</b></span><span>Round {s.round_id} · {round.name}</span><span>AI platform: <b>{ctx.platformName(s.platform_id)}</b> <small className="muted">(team-declared)</small></span><StatusBadge status={s.status}/><span className="muted">Submitted {fmtDate(s.created_at)}{isStaff?` by ${ctx.personName(s.submitted_by)}`:''}</span></div>
     {s.status==='Rejected'&&<div className="alert error">Rejected{s.rejection_reason?`: ${s.rejection_reason}`:''}. It does not count toward the leaderboard.</div>}
-    <div className="submission-preview">{round.fields.filter(f=>s[f.key]).map(f=><React.Fragment key={f.key}><h4>{f.label.replace(' (optional)','')}</h4>{f.key==='evidence_url'?<p><a href={s.evidence_url} target="_blank" rel="noreferrer noopener">{s.evidence_url}</a></p>:<p>{s[f.key]}</p>}</React.Fragment>)}</div>
+    {isStaff&&<AutoChecks facts={autoChecks(s,d.submissions,ctx.roundRow(s.round_id))}/>}
+    <div className="submission-preview">{round.fields.filter(f=>s[f.key]&&!f.html).map(f=><React.Fragment key={f.key}><h4>{f.label.replace(' (optional)','')}</h4>{f.key==='evidence_url'?<p><a href={s.evidence_url} target="_blank" rel="noreferrer noopener">{s.evidence_url}</a></p>:<p>{s[f.key]}</p>}</React.Fragment>)}</div>
+    {round.id===3&&(s.artifact_html?<div className="panel-inset"><h4>Submitted app</h4><ArtifactWorkbench value={s.artifact_html} readOnly/></div>:<p className="muted">No HTML file attached — verify the app at the team’s laptop.</p>)}
     {round.localDemo&&<div className={`alert ${s.demo_verified?'success':'info'}`}><MonitorSmartphone size={16}/><span><b>Local demo:</b> {s.demo_details||'—'} · file <code>{s.artifact_filename||'—'}</code>. {s.demo_verified?`Verified by a judge ${fmtDate(s.demo_verified_at)}.`:'Not yet verified by a judge at the team’s laptop.'}</span>
       {isStaff&&<label className="check"><input type="checkbox" checked={Boolean(s.demo_verified)} disabled={saving} onChange={e=>act(()=>api.setDemoVerified(s.id,e.target.checked),e.target.checked?'Local demo marked as verified.':'Demo verification removed.')}/> Local demo verified</label>}</div>}
     {isStaff&&s.status!=='Rejected'&&<form onSubmit={saveScores} noValidate><p className="rubric-label">SCORING RUBRIC · MAX {round.max} POINTS</p>
@@ -147,4 +154,11 @@ export function ImportModal({ctx,close}){
     {report&&<div className="table-wrap"><table><thead><tr><th>Line</th><th>Email</th><th>Team</th><th>Result</th></tr></thead><tbody>{report.rows.map((r,i)=><tr key={i}><td>{r.row??'—'}</td><td>{r.email||'—'}</td><td>{r.team}</td><td className={r.status==='error'?'warn-text':''}>{r.message}</td></tr>)}</tbody></table></div>}
     <div className="modal-actions"><button className="button" onClick={close}>Cancel</button><button className="button" disabled={saving||!parsed.rows.length} onClick={()=>run(false)}>Check roster</button><button className="button primary" disabled={saving||!report?.ok} onClick={()=>run(true)}>Import {parsed.rows.length} rows</button></div>
   </Modal>;
+}
+
+const FACT_ICON={ok:CheckCircle2,warn:AlertTriangle,info:Info};
+/** Advisory auto-checks shown to judges next to the rubric. */
+function AutoChecks({facts}){
+  return <div className="auto-checks" aria-label="Auto-checks"><div className="rubric-label">AUTO-CHECKS · ADVISORY, JUDGES DECIDE THE SCORE</div>
+    <ul>{facts.map(f=>{const Icon=FACT_ICON[f.tone]||CircleAlert;return <li key={f.label} className={f.tone}><Icon size={14}/><b>{f.label}:</b> <span>{f.value}</span></li>;})}</ul></div>;
 }

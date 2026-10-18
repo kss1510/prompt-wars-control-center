@@ -4,13 +4,16 @@
 import { test, expect } from '@playwright/test';
 
 let pageErrors = [];
+// Errors a test deliberately triggers inside the sandboxed app preview (team code, not portal code).
+let expectedErrors = [];
 test.beforeEach(async ({ page }) => {
   pageErrors = [];
+  expectedErrors = [];
   page.on('dialog', dialog => dialog.accept());
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.goto('/');
 });
-test.afterEach(() => expect(pageErrors, 'no uncaught browser errors').toEqual([]));
+test.afterEach(() => expect(pageErrors.filter(e => !expectedErrors.includes(e)), 'no uncaught browser errors').toEqual([]));
 
 async function as(page, persona) {
   if (await page.getByRole('button', { name: 'Switch persona' }).isVisible()) {
@@ -36,7 +39,7 @@ test('demo mode is clearly labelled and never presented as real event data', asy
   await as(page, 'Demo Host');
   await expect(page.getByRole('status').filter({ hasText: 'DEMO MODE' })).toContainText('Not real event data');
   await expect(page.locator('.footer')).toContainText('demo workspace (not real data)');
-  await expect(page.locator('.checklist')).toContainText('3 active (ChatGPT, Gemini, Claude)');
+  await expect(page.locator('.checklist')).toContainText('6 active (ChatGPT, Gemini, Claude, DeepSeek, Microsoft Copilot, Perplexity)');
 });
 
 test('students see participant navigation only', async ({ page }) => {
@@ -52,9 +55,9 @@ test('full round workflow: distinct platforms, validation, judging limits and le
   // Host approves a fourth platform and opens rounds 1 and 2.
   await as(page, 'Demo Host');
   await nav(page, 'AI platforms');
-  await page.getByLabel('New platform name').fill('Copilot');
+  await page.getByLabel('New platform name').fill('Mistral Le Chat');
   await page.getByRole('button', { name: 'Add platform' }).click();
-  await expect(page.getByRole('cell', { name: 'Copilot' })).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'Mistral Le Chat' })).toBeVisible();
   await hostOpensRounds(page, 'Prompt Golf', 'Guardrail Challenge');
 
   // Student declares ChatGPT for Round 1 and submits; missing deliverables are explained first.
@@ -114,6 +117,12 @@ test('full round workflow: distinct platforms, validation, judging limits and le
 });
 
 test('only one platform left is explained, and a closed round locks submissions', async ({ page }) => {
+  await as(page, 'Demo Host');
+  await nav(page, 'AI platforms');
+  for (const name of ['DeepSeek', 'Microsoft Copilot', 'Perplexity']) {
+    await page.getByRole('row', { name: new RegExp(name) }).getByRole('button', { name: 'Deactivate' }).click();
+    await expect(page.getByText(`${name} deactivated.`)).toBeVisible();
+  }
   await hostOpensRounds(page, 'Prompt Golf', 'Guardrail Challenge');
   await as(page, 'Esha (demo)');
   await roundCard(page, 'Prompt Golf').getByLabel('AI platform for Round 1').selectOption({ label: 'ChatGPT' });
@@ -168,14 +177,10 @@ test('Artifact Forge requires local demo details, rejects localhost evidence lin
 });
 
 test('Round 4 stores initial and revised plans separately', async ({ page }) => {
-  await as(page, 'Demo Host');
-  await nav(page, 'AI platforms');
-  await page.getByLabel('New platform name').fill('Copilot');
-  await page.getByRole('button', { name: 'Add platform' }).click();
   await hostOpensRounds(page, 'AI Survival Dilemma');
   await as(page, 'Dev (demo)');
   const card = roundCard(page, 'AI Survival Dilemma');
-  await card.getByLabel('AI platform for Round 4').selectOption({ label: 'Copilot' });
+  await card.getByLabel('AI platform for Round 4').selectOption({ label: 'DeepSeek' });
   await expect(page.getByText('AI platform saved for Round 4.')).toBeVisible();
   await card.getByRole('button', { name: 'Submit work' }).click();
   const dialog = page.getByRole('dialog', { name: 'Submit team work' });
@@ -250,8 +255,98 @@ test('host can hide standings from students and set a tie-break rule', async ({ 
   await page.getByRole('button', { name: 'Hide from students' }).click();
   await expect(page.getByText('Leaderboard hidden from students.')).toBeVisible();
   await nav(page, 'Leaderboard');
-  await expect(page.getByText('Tie-break: Higher Round 4 score')).toBeVisible();
+  await expect(page.getByText('Tie-break (applied automatically): Higher Round 4 score, then Round 3')).toBeVisible();
   await as(page, 'Asha (demo)');
   await nav(page, 'Leaderboard');
   await expect(page.getByText('Standings are hidden by the host until the results announcement.')).toBeVisible();
+});
+
+test('Round 3 checker explains errors, previews the app safely, and judges see the same app with auto-checks', async ({ page }) => {
+  await as(page, 'Gauri (demo)');
+  await nav(page, 'Round 3 checker');
+  await expect(page.getByText('checker, not an AI', { exact: false })).toBeVisible();
+  expectedErrors.push('Unexpected end of input'); // the broken sample below runs in the sandbox
+  const broken = '<!DOCTYPE html>\n<html><head><title>Clicker</title></head><body>\n<div id="n">0\n<script>\nlet n = 0;\ndocument.body.onclick = () => { n++; document.getElementById("n").textContent = n;\n</script>\n</body></html>';
+  await page.getByLabel('Your HTML file').fill(broken);
+  await page.getByRole('button', { name: 'Check & preview' }).click();
+  const result = page.getByRole('status', { name: 'Checker result' });
+  await expect(result).toContainText('problem');
+  await expect(result).toContainText('JavaScript');
+  await expect(result).toContainText('<div> (line 3) is not closed');
+
+  const fixed = '<!DOCTYPE html>\n<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Clicker</title></head><body>\n<div id="n">0</div>\n<script>\nlocalStorage.setItem("k", "1");\ndocument.getElementById("n").textContent = "ready";\n</script>\n</body></html>';
+  await page.getByLabel('Your HTML file').fill(fixed);
+  await page.getByRole('button', { name: 'Check & preview' }).click();
+  await expect(result).toContainText('No problems found.');
+  // Runs inside the sandbox even though the app uses localStorage.
+  await expect(page.frameLocator('iframe[title="App preview"]').locator('#n')).toHaveText('ready');
+
+  // Host opens Round 3; the team submits with the draft from the checker.
+  await as(page, 'Demo Host');
+  await nav(page, 'Rounds & scoring');
+  await roundCard(page, 'Artifact Forge').getByRole('button', { name: 'Open round' }).click();
+  await expect(roundCard(page, 'Artifact Forge').locator('.tag.round-open')).toBeVisible();
+  await as(page, 'Gauri (demo)');
+  const card = roundCard(page, 'Artifact Forge');
+  await card.getByLabel('AI platform for Round 3').selectOption({ label: 'Perplexity' });
+  await expect(page.getByText('AI platform saved for Round 3.')).toBeVisible();
+  await card.getByRole('button', { name: 'Submit work' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Submit team work' });
+  await dialog.getByRole('button', { name: 'Use my draft from the HTML checker' }).click();
+  await dialog.getByLabel('Submission title').fill('Clicker');
+  await dialog.getByLabel('Main prompt (+ at most one debugging prompt) *').fill('Build a clicker.');
+  await dialog.getByLabel('What the app does and how you tested it *').fill('Counts clicks.');
+  await dialog.getByLabel('HTML / project file name *').fill('clicker.html');
+  await dialog.getByLabel('Local demo details *').fill('Seat 7 · open clicker.html');
+  await dialog.getByRole('button', { name: 'Submit for review' }).click();
+  await expect(page.getByText('Submission sent for review.')).toBeVisible();
+
+  await as(page, 'Demo Judge');
+  await nav(page, 'Submissions');
+  await page.getByRole('row', { name: /Demo Team Orbit/ }).getByRole('button', { name: 'Review & score' }).click();
+  const review = page.getByRole('dialog', { name: 'Clicker' });
+  const checks = review.getByLabel('Auto-checks');
+  await expect(checks).toContainText('All required parts present');
+  await expect(checks).toContainText('No problems found.');
+  await expect(checks).toContainText('Not verified yet');
+  await review.getByRole('button', { name: 'Run app preview' }).click();
+  await expect(review.frameLocator('iframe[title="App preview"]').locator('#n')).toHaveText('ready');
+});
+
+test('leaderboard breaks equal totals by Round 4 first', async ({ page }) => {
+  await hostOpensRounds(page, 'Prompt Golf', 'AI Survival Dilemma');
+  const plan = { 'Submission title': 'Plan', 'Prompts used *': 'p', 'Initial plan *': 'a', 'Revised plan after the update *': 'b c', 'Risks and mitigation steps *': 'r' };
+  const golf = { 'Submission title': 'Golf', 'Prompt used *': 'p', 'Generated output *': 'o' };
+  async function submit(persona, roundName, platform, fields) {
+    await as(page, persona);
+    const card = roundCard(page, roundName);
+    await card.locator('select').selectOption({ label: platform });
+    await expect(page.getByText(/AI platform saved/)).toBeVisible();
+    await card.getByRole('button', { name: 'Submit work' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Submit team work' });
+    for (const [label, value] of Object.entries(fields)) await dialog.getByLabel(label, { exact: true }).fill(value);
+    await dialog.getByRole('button', { name: 'Submit for review' }).click();
+    await expect(page.getByText('Submission sent for review.')).toBeVisible();
+  }
+  await submit('Asha (demo)', 'Prompt Golf', 'ChatGPT', golf);
+  await submit('Esha (demo)', 'AI Survival Dilemma', 'Gemini', plan);
+  await as(page, 'Demo Judge');
+  await nav(page, 'Submissions');
+  async function score(team, values) {
+    await page.getByRole('row', { name: new RegExp(team) }).getByRole('button', { name: 'Review & score' }).click();
+    const dialog = page.getByRole('dialog');
+    const inputs = dialog.locator('input[type="number"]');
+    for (let i = 0; i < values.length; i++) await inputs.nth(i).fill(String(values[i]));
+    await dialog.getByRole('button', { name: 'Save scores' }).click();
+    await expect(page.getByText('Scores saved. Leaderboard updated.')).toBeVisible();
+    await dialog.getByRole('button', { name: 'Close' }).click();
+  }
+  await score('Demo Team Nova', [10, 5, 5]);
+  await score('Demo Team Orbit', [10, 5, 3, 2]);
+  await nav(page, 'Leaderboard');
+  const rows = page.locator('table').first().getByRole('row');
+  await expect(rows.nth(1)).toContainText('Demo Team Orbit');
+  await expect(rows.nth(1)).toContainText('Ahead on tie-break (Round 4)');
+  await expect(rows.nth(2)).toContainText('Demo Team Nova');
+  await expect(rows.nth(2)).toContainText('02');
 });

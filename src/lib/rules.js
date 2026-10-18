@@ -1,7 +1,7 @@
 // Pure event rules shared by the UI and demo mode. The database enforces the same rules
 // independently (supabase/migrations/20261017090000_event_readiness.sql) — these exist for
 // fast, friendly feedback, never as the security boundary.
-import { ROUNDS } from '../data.js';
+import { ROUNDS, TIE_BREAK_ORDER } from '../data.js';
 
 export const roundFor = id => ROUNDS.find(r => r.id === Number(id));
 const hasText = v => typeof v === 'string' && v.trim().length > 0;
@@ -110,12 +110,24 @@ export function buildLeaderboard(teams, roundRows) {
       score: Object.values(rounds).reduce((a, b) => a + b, 0),
       scored: mine.filter(x => x.scored).length
     };
-  }).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  }).sort((a, b) => b.score - a.score || tieBreak(a, b) || a.name.localeCompare(b.name));
   rows.forEach((row, i) => {
-    row.rank = i > 0 && rows[i - 1].score === row.score ? rows[i - 1].rank : i + 1;
+    const prev = rows[i - 1];
+    row.rank = prev && prev.score === row.score && !tieBreak(prev, row) ? prev.rank : i + 1;
+    // Equal points but separated by the tie-break: note which round decided it.
+    if (prev && prev.score === row.score && row.score > 0 && tieBreak(prev, row)) {
+      prev.aheadOn = prev.aheadOn || TIE_BREAK_ORDER.find(r => prev.rounds[r] !== row.rounds[r]);
+    }
   });
-  rows.forEach(row => { row.tied = rows.filter(r => r.score === row.score).length > 1 && row.score > 0; });
+  // Still tied only when equal on points and on every tie-break round.
+  rows.forEach(row => { row.tied = row.score > 0 && rows.some(r => r !== row && r.score === row.score && !tieBreak(r, row)); });
   return rows;
+}
+
+/** Organizer-confirmed tie-break (18 Oct 2026): higher Round 4, then Round 3, 2, 1. */
+function tieBreak(a, b) {
+  for (const r of TIE_BREAK_ORDER) if (a.rounds[r] !== b.rounds[r]) return b.rounds[r] - a.rounds[r];
+  return 0;
 }
 
 /** Event window vs. challenge time (all minutes). */
