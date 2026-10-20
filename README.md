@@ -1,7 +1,7 @@
 # Prompt Wars Control Center
 
 React + Vite + Supabase operations portal for **Prompt Wars: AI Survival Arena** (ACM GITAM AI/ML Domain) —
-23 October 2026, 3:00–5:00 PM IST, ICT Classroom, GITAM University. Offline event, ~50–60 participants.
+29 October 2026, 3:00–5:00 PM IST, ICT Classroom, GITAM University. Offline event, ~50–60 participants.
 
 It manages teams, round submissions, the per-round AI platform rule, judging, scores and the leaderboard.
 The **database** (Postgres row-level security, triggers and RPCs) is the security boundary; the React UI
