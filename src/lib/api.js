@@ -21,6 +21,22 @@ function friendly(error) {
   return msg;
 }
 
+/** Call one of this site's server functions (api/*.js on Vercel) with the user's session token. */
+async function callServer(supabase, path, body) {
+  const { data } = await supabase.auth.getSession();
+  let res;
+  try {
+    res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data?.session?.access_token || ''}` },
+      body: JSON.stringify(body)
+    });
+  } catch { throw new Error('Network problem — check the Wi-Fi connection and try again.'); }
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.error || `The server could not complete this (${res.status}).`), { status: res.status });
+  return json;
+}
+
 export function createSupabaseApi(supabase) {
   return {
     mode: 'supabase',
@@ -43,25 +59,32 @@ export function createSupabaseApi(supabase) {
         supabase.from('teams').select('id,name,member_names,created_at').order('name'),
         supabase.from('team_members').select('team_id,user_id,created_at').order('created_at'),
         supabase.from('submissions').select('*').order('created_at', { ascending: false }),
-        supabase.from('scores').select('id,submission_id,criterion_index,points,feedback,scored_by,updated_at'),
+        supabase.from('scores').select('id,submission_id,criterion_index,points,feedback,scored_by,source,updated_at'),
         supabase.from('leaderboard_round_scores').select('team_id,team_name,round_id,points,scored'),
         supabase.from('event_settings').select('*').single(),
         supabase.from('rounds').select('*').order('id'),
         supabase.from('ai_platforms').select('id,name,is_active').order('name'),
-        supabase.from('team_round_platforms').select('team_id,round_id,platform_id,selected_by,updated_at')
+        supabase.from('team_round_platforms').select('team_id,round_id,platform_id,selected_by,updated_at'),
+        supabase.from('round_briefs').select('*').order('round_id'),
+        supabase.from('guardrail_config').select('*'),
+        supabase.from('guardrail_messages').select('id,team_id,role,content,created_at').order('id')
       ]);
       for (const r of results) if (r.error) throw new Error(friendly(r.error));
-      const [p, teams, memberships, submissions, scores, roundScores, settings, rounds, platforms, selections] = results.map(r => r.data);
+      const [p, teams, memberships, submissions, scores, roundScores, settings, rounds, platforms, selections, briefs, chatConfigRows, chatMessages] = results.map(r => r.data);
       let profiles = [];
       let audit = [];
       if (['host', 'judge'].includes(p.role)) profiles = await run(supabase.from('profiles').select('id,full_name,email,role').order('full_name'));
       if (p.role === 'host') audit = await run(supabase.from('audit_log').select('*').order('created_at', { ascending: false }).limit(200));
-      return { profile: p, teams, memberships, submissions, scores, roundScores, settings, rounds, platforms, selections, profiles, audit };
+      // Judge notes are private (RLS: staff only) - teams simply get an empty list.
+      const judgeNotes = ['host', 'judge'].includes(p.role) ? await run(supabase.from('round_judge_notes').select('*').order('round_id')) : [];
+      return { profile: p, teams, memberships, submissions, scores, roundScores, settings, rounds, platforms, selections, profiles, audit,
+        briefs, judgeNotes, chatConfig: chatConfigRows?.[0] || null, chatMessages };
     },
 
     subscribe(onChange) {
       const channel = supabase.channel('prompt-wars-live');
-      for (const table of ['submissions', 'scores', 'teams', 'team_members', 'team_round_platforms', 'rounds', 'ai_platforms', 'event_settings']) {
+      for (const table of ['submissions', 'scores', 'teams', 'team_members', 'team_round_platforms', 'rounds', 'ai_platforms', 'event_settings',
+        'round_briefs', 'guardrail_messages', 'guardrail_config']) {
         channel.on('postgres_changes', { event: '*', schema: 'public', table }, onChange);
       }
       channel.subscribe();
@@ -102,7 +125,16 @@ export function createSupabaseApi(supabase) {
     addPlatform: name => run(supabase.from('ai_platforms').insert({ name: name.trim() })),
     updatePlatform: (id, fields) => run(supabase.from('ai_platforms').update(pick(fields, ['name', 'is_active'])).eq('id', id)),
     updateSettings: fields => run(supabase.from('event_settings').update(
-      pick(fields, ['event_name', 'venue', 'starts_at', 'ends_at', 'team_min_size', 'team_max_size', 'leaderboard_visible', 'tie_break_rule'])).eq('id', true)),
+      pick(fields, ['event_name', 'venue', 'starts_at', 'ends_at', 'team_min_size', 'team_max_size', 'leaderboard_visible', 'tie_break_rule', 'ai_judging', 'ai_chatbot'])).eq('id', true)),
+
+    // Round tasks, private judge notes and the Round 2 chatbot (host-editable).
+    updateBrief: (roundId, fields) => run(supabase.from('round_briefs').update(pick(fields, ['brief', 'update_text', 'update_released_at'])).eq('round_id', roundId)),
+    updateJudgeNotes: (roundId, notes) => run(supabase.from('round_judge_notes').update({ notes }).eq('round_id', roundId)),
+    updateChatConfig: fields => run(supabase.from('guardrail_config').update(pick(fields, ['bot_name', 'persona', 'rules', 'max_messages_per_team'])).eq('id', true)),
+    // AI runs on the server (api/*.js) so the Gemini key and the service key never reach the browser.
+    aiScore: (submissionId, force = false) => callServer(supabase, '/api/ai-score', { submissionId, force }),
+    guardrailChat: message => callServer(supabase, '/api/guardrail-chat', { message }),
+    requeueAi: id => run(supabase.rpc('host_requeue_ai', { p_submission: id })),
     setRole: (userId, role) => run(supabase.rpc('host_set_role', { p_user: userId, p_role: role }))
   };
 }

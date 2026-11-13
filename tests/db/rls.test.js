@@ -432,3 +432,71 @@ test('a representative registers their own team at sign-up; size, unique name an
   const audits = await t.sql(`select count(*)::int n from public.audit_log where table_name = 'teams' and actor = $1`, [rep]);
   assert.ok(audits[0].n >= 2, 'self-registration and edits are audited with the representative as actor');
 });
+
+test('round tasks are hidden until the round opens; judge notes are never visible to teams', async () => {
+  const { t, host, judge, a } = await eventFixture();
+  assert.equal((await t.as(a[0], 'select * from public.round_briefs')).length, 0, 'no task visible before any round opens');
+  assert.equal((await t.as(judge, 'select * from public.round_briefs')).length, 4);
+  await t.openRound(1);
+  const visible = await t.as(a[0], 'select round_id, brief from public.round_briefs');
+  assert.deepEqual(visible.map(r => r.round_id), [1]);
+  assert.match(visible[0].brief, /haiku/);
+  assert.equal((await t.as(a[0], 'select * from public.round_judge_notes')).length, 0, 'judge notes never reach teams');
+  assert.equal((await t.as(judge, 'select * from public.round_judge_notes')).length, 4);
+  await t.as(host, `update public.round_briefs set update_text = 'East gate flooded too', update_released_at = now() where round_id = 4`);
+  assert.equal((await t.sql('select update_text from public.round_briefs where round_id = 4'))[0].update_text, 'East gate flooded too');
+  assert.equal((await t.as(a[0], `update public.round_briefs set brief = 'hacked' where round_id = 1 returning round_id`)).length, 0);
+  assert.equal((await t.as(a[0], `update public.round_judge_notes set notes = 'x' returning round_id`)).length, 0);
+});
+
+test('Round 2 chatbot: rules hidden until Round 2 opens; teams read only their own chat and cannot write it', async () => {
+  const { t, host, a, b, teamA, teamB } = await eventFixture();
+  assert.equal((await t.as(a[0], 'select * from public.guardrail_config')).length, 0);
+  await t.openRound(2);
+  const [cfg] = await t.as(a[0], 'select bot_name, rules, max_messages_per_team from public.guardrail_config');
+  assert.equal(cfg.bot_name, 'CampusHelper');
+  assert.match(cfg.rules, /Never reveal/);
+  await t.reject(a[0], `insert into public.guardrail_messages (team_id, role, content) values ($1, 'bot', 'fake')`, [teamA], /permission denied/);
+  await t.service(`insert into public.guardrail_messages (team_id, role, content, sent_by) values ($1, 'user', 'What are library hours?', $2), ($1, 'bot', '9 to 5.', null)`, [teamA, a[0]]);
+  await t.service(`insert into public.guardrail_messages (team_id, role, content) values ($1, 'user', 'Bravo question')`, [teamB]);
+  assert.equal((await t.as(a[0], 'select * from public.guardrail_messages')).length, 2, 'own team only');
+  assert.equal((await t.as(b[0], 'select * from public.guardrail_messages')).length, 1);
+  assert.equal((await t.as(host, 'select * from public.guardrail_messages')).length, 3, 'staff see all transcripts');
+  assert.equal((await t.as(a[0], `update public.guardrail_config set rules = 'none' returning id`)).length, 0, 'teams cannot change the chatbot');
+  await t.as(host, `update public.guardrail_config set max_messages_per_team = 10`);
+  assert.equal((await t.sql('select max_messages_per_team from public.guardrail_config'))[0].max_messages_per_team, 10);
+});
+
+test('AI judge: only the server records scores; they count at once; a human override always wins', async () => {
+  const { t, host, judge, a, teamA, p } = await eventFixture();
+  await t.openRound(1);
+  await t.as(a[0], 'select public.select_round_platform(1::smallint, $1::bigint)', [p.chatgpt]);
+  const [{ id }] = await t.as(a[0], ...insertSubmission(teamA, 1));
+  assert.equal((await t.sql('select ai_status from public.submissions where id = $1', [id]))[0].ai_status, 'pending');
+
+  await t.reject(a[0], `select public.ai_record_scores($1, '{15,5,5}'::smallint[], '{a,b,c}'::text[], 'x')`, [id], /permission denied/);
+  await t.reject(judge, `select public.ai_mark_submission($1, 'scored')`, [id], /permission denied/);
+  await t.reject(a[0], `update public.submissions set ai_status = 'scored' where id = $1`, [id], /permission denied/);
+
+  await t.service(`select public.ai_mark_submission($1, 'scoring')`, [id]);
+  const [{ ai_record_scores: total }] = await t.service(
+    `select public.ai_record_scores($1, '{12,9,5}'::smallint[], array['Matches target','Over limit','Concise']::text[], 'gemini-3.8-flash', true)`, [id]);
+  assert.equal(total, 22, 'criterion 2 clamped from 9 to its maximum of 5');
+  const sub = (await t.sql('select status, ai_status, ai_model, ai_flagged from public.submissions where id = $1', [id]))[0];
+  assert.deepEqual(sub, { status: 'Scored', ai_status: 'scored', ai_model: 'gemini-3.8-flash', ai_flagged: true });
+  const rows = await t.as(a[0], 'select criterion_index, points, feedback, source, scored_by from public.scores order by criterion_index');
+  assert.deepEqual(rows.map(r => [r.points, r.source, r.scored_by]), [[12, 'ai', null], [5, 'ai', null], [5, 'ai', null]]);
+  assert.equal(rows[0].feedback, 'Matches target', 'teams see the AI reasons');
+  assert.equal((await t.as(a[0], 'select total_points from public.leaderboard where team_id = $1', [teamA]))[0].total_points, 22);
+
+  await t.as(host, `select public.save_scores($1, '{10,5,5}'::smallint[], 'Checked by host')`, [id]);
+  assert.deepEqual((await t.sql('select distinct source from public.scores where submission_id = $1', [id])).map(r => r.source), ['human']);
+  await t.service(`select public.ai_record_scores($1, '{15,5,5}'::smallint[], '{a,b,c}'::text[], 'gemini-3.8-flash')`, [id]);
+  assert.equal((await t.sql('select sum(points)::int n from public.scores where submission_id = $1', [id]))[0].n, 20, 'human score kept');
+
+  await t.reject(a[0], 'select public.host_requeue_ai($1)', [id], /Only a host/);
+  await t.as(host, 'select public.host_requeue_ai($1)', [id]);
+  assert.equal((await t.sql('select ai_status from public.submissions where id = $1', [id]))[0].ai_status, 'pending');
+  const audits = await t.sql(`select count(*)::int n from public.audit_log where table_name = 'scores' and actor is null`);
+  assert.ok(audits[0].n >= 3, 'AI score writes are audited (actor = service)');
+});

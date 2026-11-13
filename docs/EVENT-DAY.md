@@ -12,7 +12,10 @@ Date, time and venue: to be confirmed.
    team*: team name and the other members' names (3–4 people). Organizers and judges choose *Organizer / judge*;
    promote them under **Event settings → People and roles**. Check the **Teams** page, fix anything, then
    **Finalize teams** (this also closes registration).
-5. Promote judges on **Event settings → People and roles**.
+5. AI judge set up: Vercel has `GEMINI_API_KEY` and `SUPABASE_SERVICE_ROLE_KEY`; **Event settings → Test the AI
+   connection** says "Working". Write each round's task and judge notes on **Rounds & scoring**, and the
+   Round 2 chatbot's rules. Tell participants submissions are scored with AI assistance (Google Gemini).
+   Judges are optional now (for overrides); promote any on **Event settings → People and roles**.
 6. Overview → **Event readiness** shows all green.
 7. Rehearse once with `npm run dev:demo`.
 8. Supabase dashboard: confirm the project is not paused (free projects pause after a week without activity). Leaked-password protection needs the Pro plan — skipped.
@@ -42,7 +45,10 @@ for an open round (e.g. if the Wi-Fi drops).
 - **Host:** **Round tracker** shows, per team, the declared platform ("No platform" in amber) and status.
   If a team cannot submit (laptop died), the host can **Enter for a team** on Submissions — this works even
   after the deadline and is audited.
-- **Judges:** Submissions → filter by round → **Review & score**. Read the **Auto-checks** box (advisory
+- **AI judge:** scores each submission the moment it is sent; keep the host portal open so anything the AI
+  couldn't score (busy) is retried automatically. Round 2 teams use the **Round 2 chatbot** page; in Round 4
+  release the surprise update from **Rounds & scoring → Task & AI judge notes**.
+- **Judges (optional overrides):** Submissions → filter by round → **Review & score**. Read the **Auto-checks** box (advisory
   facts), then score. Each criterion is limited to its maximum; the database recomputes totals. Scoring
   automatically locks the team's edits. For Round 3, **Run app preview** opens the team's attached HTML.
 

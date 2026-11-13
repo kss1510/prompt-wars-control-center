@@ -16,7 +16,8 @@ import { RoundsPage } from './pages/Rounds';
 import { PlatformsPage } from './pages/Platforms';
 import { SettingsPage } from './pages/Settings';
 import { ForgePage } from './pages/Forge';
-import { CheckCircle2, ChevronRight, ClipboardList, Code2, Cpu, FlaskConical, Grid3x3, LayoutDashboard, LogOut, RefreshCw, Settings, ShieldCheck, Trophy, Users, WandSparkles, X } from 'lucide-react';
+import { ChatbotPage } from './pages/Chatbot';
+import { CheckCircle2, ChevronRight, ClipboardList, Code2, Cpu, MessageSquare, FlaskConical, Grid3x3, LayoutDashboard, LogOut, RefreshCw, Settings, ShieldCheck, Trophy, Users, WandSparkles, X } from 'lucide-react';
 
 const api = demoMode ? createDemoApi() : configured ? createSupabaseApi(supabase) : null;
 
@@ -27,11 +28,12 @@ const NAV = [
   {id:'leaderboard',label:'Leaderboard',icon:Trophy},
   {id:'teams',label:'Teams',icon:Users,host:true},
   {id:'rounds',label:'Rounds & scoring',icon:WandSparkles},
+  {id:'chatbot',label:'Round 2 chatbot',icon:MessageSquare},
   {id:'forge',label:'Round 3 checker',icon:Code2},
   {id:'platforms',label:'AI platforms',icon:Cpu},
   {id:'settings',label:'Event settings',icon:Settings,host:true}
 ];
-const EMPTY = {teams:[],memberships:[],submissions:[],scores:[],roundScores:[],settings:EVENT_DEFAULTS,rounds:[],platforms:[],selections:[],profiles:[],audit:[]};
+const EMPTY = {teams:[],memberships:[],submissions:[],scores:[],roundScores:[],settings:EVENT_DEFAULTS,rounds:[],platforms:[],selections:[],profiles:[],audit:[],briefs:[],judgeNotes:[],chatConfig:null,chatMessages:[]};
 
 export default function App() {
   const [session,setSession]=useState(null);
@@ -70,6 +72,45 @@ export default function App() {
     return ()=>{clearTimeout(timer);stop();};
   },[session?.user?.id,loadData]);
 
+  /**
+   * Ask the AI judge to score a submission. Never blocks the user: if Gemini is busy or down the
+   * submission stays queued and the host's open portal retries it (see the queue effect below).
+   */
+  const autoScore=useCallback(async id=>{
+    if(!api) return;
+    say('The AI judge is scoring this submission…');
+    try { const r=await api.aiScore(id); if(r?.status==='scored') say(`Scored by the AI judge${r.total!=null?`: ${r.total} points`:''}.`); }
+    catch(e){ say(e.status===409?e.message:'The AI judge is busy — this submission will be scored automatically in a minute.'); }
+    finally { await loadData(); }
+  },[loadData]);
+
+  // Host's portal works through the AI queue: pending submissions (left for 45 s, so the team's own
+  // request goes first) and failed ones, one at a time, spaced out for the free-tier rate limit.
+  const aiAttempts=useRef({});
+  const aiRunning=useRef(false);
+  useEffect(()=>{
+    if(!api||d?.profile?.role!=='host'||!d?.settings?.ai_judging) return;
+    const tick=async()=>{
+      if(aiRunning.current) return;
+      const old=Date.now()-45000;
+      const queue=(d.submissions||[]).filter(s=>s.status!=='Rejected'&&(aiAttempts.current[s.id]||0)<6&&(
+        s.ai_status==='failed'||(s.ai_status==='pending'&&new Date(s.updated_at||s.created_at).getTime()<old)||
+        (s.ai_status==='scoring'&&new Date(s.updated_at||s.created_at).getTime()<Date.now()-120000)));
+      if(!queue.length) return;
+      aiRunning.current=true;
+      try {
+        for(const s of queue.slice(0,5)){
+          aiAttempts.current[s.id]=(aiAttempts.current[s.id]||0)+1;
+          try { await api.aiScore(s.id); } catch { /* stays queued; retried next tick */ }
+          await new Promise(r=>setTimeout(r,2500));
+        }
+      } finally { aiRunning.current=false; loadData(); }
+    };
+    const timer=setInterval(tick,20000);
+    tick();
+    return ()=>clearInterval(timer);
+  },[d,loadData]);
+
   /** Run a write, show the database's message on failure, reload shared data on success. */
   const act=useCallback(async (fn,message)=>{
     setSaving(true);setError('');
@@ -87,6 +128,9 @@ export default function App() {
     const scoresFor=id=>data.scores.filter(s=>s.submission_id===id).sort((a,b)=>a.criterion_index-b.criterion_index);
     return {
       d:data, api, profile, isHost, isStaff, myTeamId, saving, act, setModal, setPage, demo:api?.mode==='demo', userMeta:session?.user?.user_metadata||{},
+      autoScore, reload:loadData,
+      briefFor:id=>data.briefs.find(b=>b.round_id===Number(id)),
+      notesFor:id=>data.judgeNotes.find(b=>b.round_id===Number(id)),
       myTeam:data.teams.find(t=>t.id===myTeamId),
       teamName:id=>data.teams.find(t=>t.id===id)?.name||`Team ${id}`,
       platformName:id=>data.platforms.find(p=>p.id===id)?.name||'—',
@@ -97,7 +141,7 @@ export default function App() {
       isFullyScored:s=>scoresFor(s.id).length===roundFor(s.round_id)?.criteria.length,
       board:buildLeaderboard(data.teams,data.roundScores)
     };
-  },[d,saving,act,session]);
+  },[d,saving,act,session,autoScore,loadData]);
 
   async function signOut(){await api.auth.signOut();setError('');}
   function resetDemo(){if(window.confirm('Reset all demo data in this browser?')){api.reset();api.auth.signOut();}}
@@ -129,11 +173,12 @@ export default function App() {
         {currentPage==='platforms'&&<PlatformsPage ctx={ctx}/>}
         {currentPage==='settings'&&<SettingsPage ctx={ctx}/>}
         {currentPage==='forge'&&<ForgePage ctx={ctx}/>}
+        {currentPage==='chatbot'&&<ChatbotPage ctx={ctx}/>}
         {loading&&<div className="refresh-line"><RefreshCw size={14}/> Refreshing shared data…</div>}
       </main>
     </div>
     {modal?.type==='submit'&&<SubmissionModal ctx={ctx} {...modal} close={()=>setModal(null)}/>}
-    {modal?.type==='review'&&<ReviewModal ctx={ctx} submissionId={modal.submissionId} close={()=>setModal(null)}/>}
+    {modal?.type==='review'&&<ReviewModal key={`${modal.submissionId}:${(d?.submissions||[]).find(s=>s.id===modal.submissionId)?.ai_status}`} ctx={ctx} submissionId={modal.submissionId} close={()=>setModal(null)}/>}
     {modal?.type==='team'&&<TeamModal ctx={ctx} close={()=>setModal(null)}/>}
     {modal?.type==='import'&&<ImportModal ctx={ctx} close={()=>setModal(null)}/>}
     <footer className="footer">Prompt Wars · {ctx.demo?'demo workspace (not real data)':'shared event workspace'} <span>·</span> 4 rounds <span>·</span> {MAX_TOTAL} possible points</footer>

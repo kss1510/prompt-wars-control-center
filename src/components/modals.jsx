@@ -5,7 +5,7 @@ import { autoChecks } from '../lib/autoChecks';
 import { Field, Modal, RoundState, StatusBadge, fmtDate } from './ui';
 import { ArtifactWorkbench } from './ArtifactWorkbench';
 import { readForgeDraft } from '../pages/Forge';
-import { AlertTriangle, CheckCircle2, CircleAlert, Info, MonitorSmartphone } from 'lucide-react';
+import { AlertTriangle, Bot, CheckCircle2, CircleAlert, Info, MessageSquare, MonitorSmartphone, RefreshCw } from 'lucide-react';
 
 /** Platform picker for one team-round. Shows used platforms disabled with the round they were used in. */
 export function PlatformPicker({ctx,teamId,roundId,compact}){
@@ -53,7 +53,15 @@ export function SubmissionModal({ctx,roundId:initialRound,teamId:initialTeam,sub
       ? await act(()=>api.updateSubmission(existing.id,form),'Submission updated.')
       : await act(()=>api.submit({...form,team_id:teamId,round_id:roundId}),'Submission sent for review.');
     if(ok) close();
+    // The AI judge scores new submissions immediately (the host's screen retries if it is busy).
+    if(ok&&!existing&&ok.id&&d.settings.ai_judging) ctx.autoScore(ok.id);
   }
+  const chat=d.chatMessages.filter(m=>m.team_id===teamId);
+  function useChat(){
+    const lines=role=>chat.filter(m=>m.role===role).map((m,i)=>`${i+1}. ${m.content}`).join('\n');
+    setForm(f=>({...f,prompt_text:lines('user'),output_text:lines('bot')}));
+  }
+  const task=ctx.briefFor(roundId);
   return <Modal title={existing?'Edit submission':'Submit team work'} close={close} wide><form onSubmit={save} noValidate>
     <div className="form-grid">
       <Field label="Team"><select value={teamId??''} disabled={!isHost||Boolean(existing)} onChange={e=>setTeamId(Number(e.target.value))}>{(isHost?d.teams:d.teams.filter(t=>t.id===ctx.myTeamId)).map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></Field>
@@ -65,6 +73,9 @@ export function SubmissionModal({ctx,roundId:initialRound,teamId:initialTeam,sub
       <div className="rubric-label">REQUIRED DELIVERABLES</div><ul className="deliverables">{round.fields.filter(f=>f.required).map(f=><li key={f.key}>{f.label}</li>)}<li>A declared AI platform not used by your team in any other round</li></ul>
       <div className="rubric-label">JUDGING · MAX {round.max} POINTS</div><p className="muted">{round.criteria.map(c=>`${c.name} (${c.max})`).join(' · ')}</p>
     </div>
+    {task?.brief&&<div className="task-box"><div className="rubric-label">YOUR TASK</div><p>{task.brief}</p>{roundId===4&&task.update_text&&<div className="update-box"><b>Surprise update:</b> {task.update_text}</div>}</div>}
+    {d.settings.ai_judging&&!existing&&<p className="hint"><Bot size={13}/> The AI judge scores your work as soon as you submit, and it can’t be edited after that — submit your final version.</p>}
+    {roundId===2&&!existing&&chat.length>0&&<button type="button" className="button small" onClick={useChat}><MessageSquare size={14}/> Use our chatbot conversation ({chat.filter(m=>m.role==='user').length} test{chat.filter(m=>m.role==='user').length===1?'':'s'})</button>}
     {!accepting&&<div className="alert error">This round is not open for submissions{live?.status==='upcoming'?' yet':''}.</div>}
     {teamId&&(existing?<p className="muted">AI platform: <b>{ctx.platformName(existing.platform_id)}</b> (declared by your team; recorded with this submission)</p>:<PlatformPicker ctx={ctx} teamId={teamId} roundId={roundId}/>)}
     <p className="hint">The platform is what your team declares it used. The portal records and enforces the declaration; it cannot detect which AI tool was actually used.</p>
@@ -90,6 +101,7 @@ export function ReviewModal({ctx,submissionId,close}){
   const [fixPlatform,setFixPlatform]=useState('');
   if(!s) return <Modal title="Submission" close={close}><p>This submission is no longer available.</p></Modal>;
   const total=points.reduce((n,p)=>n+(Number(p)||0),0);
+  const byAi=current.length>0&&current.every(x=>x.source==='ai');
   async function saveScores(e){
     e.preventDefault();
     const problem=scoreError(s.round_id,points);
@@ -100,18 +112,19 @@ export function ReviewModal({ctx,submissionId,close}){
   return <Modal title={s.title} close={close} wide>
     <div className="review-meta"><span><b>{ctx.teamName(s.team_id)}</b></span><span>Round {s.round_id} · {round.name}</span><span>AI platform: <b>{ctx.platformName(s.platform_id)}</b> <small className="muted">(team-declared)</small></span><StatusBadge status={s.status}/><span className="muted">Submitted {fmtDate(s.created_at)}{isStaff?` by ${ctx.personName(s.submitted_by)}`:''}</span></div>
     {s.status==='Rejected'&&<div className="alert error">Rejected{s.rejection_reason?`: ${s.rejection_reason}`:''}. It does not count toward the leaderboard.</div>}
+    <AiJudgePanel ctx={ctx} s={s} round={round} current={current} byAi={byAi}/>
     {isStaff&&<AutoChecks facts={autoChecks(s,d.submissions,ctx.roundRow(s.round_id))}/>}
     <div className="submission-preview">{round.fields.filter(f=>s[f.key]&&!f.html).map(f=><React.Fragment key={f.key}><h4>{f.label.replace(' (optional)','')}</h4>{f.key==='evidence_url'?<p><a href={s.evidence_url} target="_blank" rel="noreferrer noopener">{s.evidence_url}</a></p>:<p>{s[f.key]}</p>}</React.Fragment>)}</div>
     {round.id===3&&(s.artifact_html?<div className="panel-inset"><h4>Submitted app</h4><ArtifactWorkbench value={s.artifact_html} readOnly/></div>:<p className="muted">No HTML file attached — verify the app at the team’s laptop.</p>)}
     {round.localDemo&&<div className={`alert ${s.demo_verified?'success':'info'}`}><MonitorSmartphone size={16}/><span><b>Local demo:</b> {s.demo_details||'—'} · file <code>{s.artifact_filename||'—'}</code>. {s.demo_verified?`Verified by a judge ${fmtDate(s.demo_verified_at)}.`:'Not yet verified by a judge at the team’s laptop.'}</span>
       {isStaff&&<label className="check"><input type="checkbox" checked={Boolean(s.demo_verified)} disabled={saving} onChange={e=>act(()=>api.setDemoVerified(s.id,e.target.checked),e.target.checked?'Local demo marked as verified.':'Demo verification removed.')}/> Local demo verified</label>}</div>}
-    {isStaff&&s.status!=='Rejected'&&<form onSubmit={saveScores} noValidate><p className="rubric-label">SCORING RUBRIC · MAX {round.max} POINTS</p>
+    {isStaff&&s.status!=='Rejected'&&<form onSubmit={saveScores} noValidate><p className="rubric-label">{byAi?'OVERRIDE THE AI JUDGE (OPTIONAL)':'SCORING RUBRIC'} · MAX {round.max} POINTS</p>
       <div className="score-grid">{round.criteria.map((c,i)=><Field key={c.name} label={`${c.name} (max ${c.max})`}><input type="number" inputMode="numeric" min="0" max={c.max} step="1" value={points[i]} onChange={e=>setPoints(p=>p.map((x,j)=>j===i?e.target.value:x))}/></Field>)}</div>
       <Field label="Judge feedback (optional)"><textarea value={feedback} onChange={e=>setFeedback(e.target.value)} placeholder="Short feedback for the team…"/></Field>
       {scoreProblem&&<div className="alert error" role="alert">{scoreProblem}</div>}
       <div className="modal-actions"><span className="muted">Entered total: <b>{total} / {round.max}</b> (the database recomputes the official total)</span><button disabled={saving} className="button primary">{saving?'Saving…':ctx.isFullyScored(s)?'Update scores':'Save scores'}</button></div>
     </form>}
-    {!isStaff&&ctx.isFullyScored(s)&&<div className="alert success"><CheckCircle2 size={16}/> Scored {ctx.subTotal(s.id)} / {round.max}{current[0]?.feedback?` — “${current[0].feedback}”`:''}</div>}
+    {!isStaff&&ctx.isFullyScored(s)&&!byAi&&<div className="alert success"><CheckCircle2 size={16}/> Scored {ctx.subTotal(s.id)} / {round.max}{current[0]?.feedback?` — “${current[0].feedback}”`:''}</div>}
     {isStaff&&s.status==='Submitted'&&<div className="modal-actions"><button className="button" disabled={saving} onClick={()=>act(()=>api.setStatus(s.id,'Under review'),'Marked as under review. The team can no longer edit it.')}>Mark under review</button></div>}
     {isHost&&<details className="host-tools"><summary>Host corrections (recorded in the audit log)</summary>
       <div className="form-grid"><Field label="Correct AI platform"><select value={fixPlatform} onChange={e=>setFixPlatform(e.target.value)}><option value="">Choose platform…</option>{d.platforms.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field><Field label="Reason"><input value={reason} onChange={e=>setReason(e.target.value)} placeholder="Why this correction is needed"/></Field></div>
@@ -167,4 +180,21 @@ const FACT_ICON={ok:CheckCircle2,warn:AlertTriangle,info:Info};
 function AutoChecks({facts}){
   return <div className="auto-checks" aria-label="Auto-checks"><div className="rubric-label">AUTO-CHECKS · ADVISORY, JUDGES DECIDE THE SCORE</div>
     <ul>{facts.map(f=>{const Icon=FACT_ICON[f.tone]||CircleAlert;return <li key={f.label} className={f.tone}><Icon size={14}/><b>{f.label}:</b> <span>{f.value}</span></li>;})}</ul></div>;
+}
+
+/** What the AI judge decided (or is doing) for this submission. */
+function AiJudgePanel({ctx,s,round,current,byAi}){
+  const {d,api,act,saving,isStaff,isHost}=ctx;
+  if(!d.settings.ai_judging&&!byAi) return null;
+  if(s.status==='Rejected') return null;
+  if(byAi&&ctx.isFullyScored(s)) return <div className="ai-panel" aria-label="AI judge result">
+    <div className="ai-panel-head"><Bot size={16}/><b>Scored by the AI judge</b><span className="muted">{s.ai_model||''}</span><b className="ai-total">{ctx.subTotal(s.id)} / {round.max}</b></div>
+    {s.ai_flagged&&<div className="alert error"><AlertTriangle size={16}/> The AI judge flagged a possible attempt to manipulate the scoring. It ignored that text{isStaff?'; a host may want to check this submission':''}.</div>}
+    <ul className="ai-criteria">{round.criteria.map((c,i)=>{const sc=current.find(x=>x.criterion_index===i);return <li key={c.name}><span><b>{c.name}</b> <small className="muted">{sc?.points??'—'} / {c.max}</small></span><span>{sc?.feedback||''}</span></li>;})}</ul>
+    {isHost&&<div className="modal-actions"><button className="button small" disabled={saving} onClick={()=>window.confirm('Re-run the AI judge for this submission? Its current AI scores are replaced.')&&act(async()=>{await api.requeueAi(s.id);return api.aiScore(s.id);},'AI judge re-ran.')}><RefreshCw size={14}/> Re-run AI judge</button></div>}
+  </div>;
+  if(current.length&&!byAi) return <p className="hint"><CheckCircle2 size={13}/> Scored by a judge or host (overrides the AI judge).</p>;
+  if(s.ai_status==='failed') return <div className="alert error" aria-label="AI judge result"><span><b>AI judge could not score yet:</b> {s.ai_error||'unknown problem'}. It is retried automatically while a host has the portal open.</span>
+    {isStaff&&<button className="button small" disabled={saving} onClick={()=>ctx.autoScore(s.id)}>Retry now</button>}</div>;
+  return <div className="alert info" aria-label="AI judge result"><Bot size={16}/><span>The AI judge is scoring this submission… the score appears here automatically.</span></div>;
 }

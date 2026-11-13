@@ -25,8 +25,17 @@ export function Submissions({ctx}){
       <select aria-label="Filter by status" value={status} onChange={e=>setStatus(e.target.value)}><option value="all">All statuses</option>{STATUSES.map(s=><option key={s}>{s}</option>)}</select>
       <select aria-label="Filter by AI platform" value={platform} onChange={e=>setPlatform(e.target.value)}><option value="all">All platforms</option>{d.platforms.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
     </div>
-    <div className="table-wrap"><table><thead><tr><th>Team</th><th>Round</th><th>AI platform</th><th>Status</th><th>Score</th><th>Action</th></tr></thead><tbody>
-      {rows.map(s=><tr key={s.id}><td><b>{ctx.teamName(s.team_id)}</b><small>{s.title} · {fmtDate(s.created_at)}</small></td><td>{s.round_id}. {roundFor(s.round_id)?.name}</td><td>{ctx.platformName(s.platform_id)}</td><td><StatusBadge status={s.status}/>{s.round_id===3&&<small>{s.demo_verified?'Demo verified':'Demo not verified'}</small>}</td><td><b>{ctx.isFullyScored(s)?`${ctx.subTotal(s.id)} / ${roundFor(s.round_id)?.max}`:'—'}</b></td><td><button className="button small" onClick={()=>ctx.setModal({type:'review',submissionId:s.id})}>{s.status==='Scored'?'Edit score':s.status==='Rejected'?'View':'Review & score'}</button></td></tr>)}
-      {!rows.length&&<tr><td colSpan="6"><Empty text="No submissions match these filters."/></td></tr>}
+    <div className="table-wrap"><table><thead><tr><th>Team</th><th>Round</th><th>AI platform</th><th>Status</th><th>Score</th><th>AI judge</th><th>Action</th></tr></thead><tbody>
+      {rows.map(s=><tr key={s.id}><td><b>{ctx.teamName(s.team_id)}</b><small>{s.title} · {fmtDate(s.created_at)}</small></td><td>{s.round_id}. {roundFor(s.round_id)?.name}</td><td>{ctx.platformName(s.platform_id)}</td><td><StatusBadge status={s.status}/>{s.round_id===3&&<small>{s.demo_verified?'Demo verified':'Demo not verified'}</small>}</td><td><b>{ctx.isFullyScored(s)?`${ctx.subTotal(s.id)} / ${roundFor(s.round_id)?.max}`:'—'}</b></td><td><AiStatus ctx={ctx} s={s}/></td><td><button className="button small" onClick={()=>ctx.setModal({type:'review',submissionId:s.id})}>{s.status==='Scored'?'Edit score':s.status==='Rejected'?'View':'Review & score'}</button></td></tr>)}
+      {!rows.length&&<tr><td colSpan="7"><Empty text="No submissions match these filters."/></td></tr>}
     </tbody></table></div></section></>;
+}
+
+function AiStatus({ctx,s}){
+  const human=ctx.scoresFor(s.id).some(x=>x.source==='human');
+  if(s.status==='Rejected') return <small className="muted">—</small>;
+  if(human) return <small>Human score</small>;
+  if(s.ai_status==='scored') return <small>{s.ai_flagged?<b className="warn-text">Scored · flagged</b>:'Scored'}</small>;
+  if(s.ai_status==='failed') return <span><small className="warn-text" title={s.ai_error||''}>Failed — retrying</small> <button className="text-button" onClick={()=>ctx.autoScore(s.id)}>Retry</button></span>;
+  return <small className="muted">{s.ai_status==='scoring'?'Scoring…':'Queued'}</small>;
 }

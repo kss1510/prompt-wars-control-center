@@ -51,3 +51,16 @@ td small{display:block}
 .segmented{display:flex;gap:4px;padding:4px;margin:12px 0;border:1px solid var(--border);border-radius:12px;background:var(--surface2)}
 .segmented button{flex:1;border:0;border-radius:9px;padding:8px 10px;background:transparent;color:var(--muted);font-weight:700}
 .segmented button.active{background:#26284c;color:var(--accent)}
+/* Round tasks, AI judge and Round 2 chatbot */
+.task-box{border:1px solid #3c3f7a;background:#1b1d3a;border-radius:12px;padding:10px 12px;margin:10px 0}.task-box p{margin:4px 0 0;white-space:pre-wrap}
+.update-box{margin-top:8px;padding:8px 10px;border-radius:10px;background:#3d2f12;color:#f3dfb4;border:1px solid #6b5420}
+.task-editor{margin-top:10px}
+.ai-panel{border:1px solid #245747;background:#10291f;border-radius:12px;padding:10px 12px;margin:0 0 12px}
+.ai-panel-head{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.ai-panel-head svg{color:var(--good)}.ai-total{margin-left:auto;font-size:16px}
+.ai-criteria{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:6px}.ai-criteria li{display:grid;grid-template-columns:minmax(160px,220px) 1fr;gap:10px}
+.chat-layout{align-items:start}.rules{white-space:pre-wrap;font:inherit;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px;margin:0}
+.chat-panel{display:flex;flex-direction:column;gap:10px}.chat-log{display:flex;flex-direction:column;gap:8px;max-height:420px;min-height:220px;overflow-y:auto;padding:4px}
+.bubble{max-width:85%;padding:9px 12px;border-radius:14px;white-space:pre-wrap;display:flex;gap:6px;align-items:flex-start}
+.bubble.user{align-self:flex-end;background:#26284c;border:1px solid #3c3f7a}.bubble.bot{align-self:flex-start;background:var(--surface2);border:1px solid var(--border)}.bubble.bot svg{color:var(--teal);margin-top:3px;flex-shrink:0}
+.chat-input{display:flex;gap:8px}.chat-input input{flex:1;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--text)}
+@media(max-width:700px){.ai-criteria li{grid-template-columns:1fr}.bubble{max-width:100%}}

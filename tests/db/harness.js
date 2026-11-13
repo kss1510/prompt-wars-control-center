@@ -53,6 +53,13 @@ function wrap(db) {
         await db.query(`select set_config('request.jwt.claim.sub', '', false)`);
       }
     },
+    /** Run SQL as the server's service role (no signed-in user), like the Vercel AI functions. */
+    async service(query, params = []) {
+      await db.query(`select set_config('request.jwt.claim.sub', '', false)`);
+      await db.exec('set role service_role');
+      try { return (await db.query(query, params)).rows; }
+      finally { await db.exec('reset role'); }
+    },
     /** Expect a statement to be rejected; returns the error message. */
     async reject(userId, query, params = [], pattern) {
       try { await api.as(userId, query, params); }

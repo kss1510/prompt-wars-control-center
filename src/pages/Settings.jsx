@@ -33,6 +33,7 @@ export function SettingsPage({ctx}){
         <div className="form-grid"><Field label="Minimum team size"><input type="number" min="1" max="10" value={form.team_min_size} onChange={e=>set('team_min_size',e.target.value)}/></Field><Field label="Maximum team size"><input type="number" min="1" max="10" value={form.team_max_size} onChange={e=>set('team_max_size',e.target.value)}/></Field></div>
         <Field label="Tie-break rule (shown to everyone)" hint="Confirmed 18 Oct: Round 4 → 3 → 2 → 1. The leaderboard applies this order automatically; changing the order itself needs a code change."><input maxLength="500" value={form.tie_break_rule} onChange={e=>set('tie_break_rule',e.target.value)} placeholder="e.g. Higher Round 4 score, then higher Round 3 score"/></Field>
         <div className="modal-actions"><button className="button primary" disabled={saving}><Save size={16}/> Save settings</button></div></form></section>
+    <AiSettings ctx={ctx}/>
     <section className="panel"><div className="panel-title"><div><h2>Standings visibility</h2><p className="muted">{s.leaderboard_visible?'Students can see the leaderboard and their scores.':'Students cannot see standings or scores. Staff still can.'}</p></div>
       <button className="button" disabled={saving} onClick={()=>act(()=>api.updateSettings({leaderboard_visible:!s.leaderboard_visible}),s.leaderboard_visible?'Leaderboard hidden from students.':'Leaderboard visible to students.')}>{s.leaderboard_visible?<><EyeOff size={16}/> Hide from students</>:<><Eye size={16}/> Show to students</>}</button></div></section>
     <section className="panel"><div className="panel-title"><div><h2>Backups and exports</h2><p className="muted">Download a backup before announcing winners. Exports contain participant names and emails — store them privately.</p></div></div>
@@ -52,4 +53,28 @@ function describe(a,ctx){
   if(a.table_name==='profiles') return `${row.full_name||row.email}: ${a.old_data?.role} → ${a.new_data?.role}`;
   if(a.table_name==='team_members') return `${ctx.teamName(row.team_id)} · ${ctx.personName(row.user_id)}`;
   return row.name||'';
+}
+
+/** AI judge and Round 2 chatbot switches, queue status and a quick connection test. */
+function AiSettings({ctx}){
+  const {d,api,act,saving}=ctx;
+  const s=d.settings;
+  const [test,setTest]=useState('');
+  const active=d.submissions.filter(x=>x.status!=='Rejected');
+  const count=st=>active.filter(x=>x.ai_status===st).length;
+  async function testAi(){
+    setTest('Testing…');
+    try { const r=await api.guardrailChat('Hello! In one sentence, who are you?'); setTest(`Working ✓ — the chatbot replied: “${r.reply}”`); }
+    catch(e){ setTest(`Not working: ${e.message}`); }
+  }
+  return <section className="panel" aria-label="AI judge settings"><div className="panel-title"><div><h2>AI judge &amp; Round 2 chatbot</h2>
+      <p className="muted">The AI judge scores every submission automatically; its scores count immediately. Any host or judge can override a score, and every change is audited.{ctx.demo?' Demo mode uses a simulated AI (no real AI calls).':' Runs on Google Gemini (free tier) from the server; submissions are sent to Google for scoring.'}</p></div></div>
+    <div className="head-actions">
+      <button className="button" disabled={saving} onClick={()=>act(()=>api.updateSettings({ai_judging:!s.ai_judging}),s.ai_judging?'AI judging switched off — judges score manually.':'AI judging switched on.')}>{s.ai_judging?'Turn AI judging off':'Turn AI judging on'}</button>
+      <button className="button" disabled={saving} onClick={()=>act(()=>api.updateSettings({ai_chatbot:!s.ai_chatbot}),s.ai_chatbot?'Round 2 chatbot switched off.':'Round 2 chatbot switched on.')}>{s.ai_chatbot?'Turn chatbot off':'Turn chatbot on'}</button>
+      <button className="button" onClick={testAi}>Test the AI connection</button>
+    </div>
+    <p className="muted">AI judging: <b>{s.ai_judging?'on':'off'}</b> · chatbot: <b>{s.ai_chatbot?'on':'off'}</b> · queue: {count('scored')} scored, {count('pending')+count('scoring')} waiting, {count('failed')} retrying. Keep this host page open during the event — it retries anything the AI couldn’t score.</p>
+    {test&&<p className={test.startsWith('Working')?'':'warn-text'} role="status">{test}</p>}
+  </section>;
 }

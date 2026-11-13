@@ -1,10 +1,11 @@
 // DEMO MODE ONLY (npm run dev:demo). Sample data lives in this browser's localStorage and never
 // touches Supabase. Personas replace sign-in, so there is NO real authorization here — the
 // rules below mirror the database so rehearsals behave like the real event, nothing more.
-import { ROUNDS, EVENT_DEFAULTS, SUBMISSION_FIELDS } from '../data.js';
+import { ROUNDS, EVENT_DEFAULTS, SUBMISSION_FIELDS, DEFAULT_ROUND_TASKS, DEFAULT_JUDGE_NOTES, DEFAULT_CHATBOT } from '../data.js';
+import { simulateJudge, simulateChatbot } from './aiJudge.js';
 import { missingDeliverables, platformChoiceError, scoreError, isRoundAccepting, isRoundClosed, teamSizeIssues, teamsWithoutRepresentative, normalizeNames, memberNamesError, teamRegistrationError, roundFor } from './rules.js';
 
-const KEY = 'pw-demo-v3'; // v3: one account per team
+const KEY = 'pw-demo-v4'; // v4: in-app tasks, Round 2 chatbot, simulated AI judge
 const now = () => new Date().toISOString();
 const persona = (id, full_name, role) => ({ id, full_name, email: `${id}@demo.local`, role });
 
@@ -33,7 +34,11 @@ function seed() {
     rounds: ROUNDS.map(r => ({ id: r.id, name: r.name, max_points: r.max, criteria_max: r.criteria.map(c => c.max),
       duration_minutes: r.minutes, status: 'upcoming', opens_at: null, closes_at: null })),
     platforms: ['ChatGPT', 'Gemini', 'Claude', 'DeepSeek', 'Microsoft Copilot', 'Perplexity'].map((name, i) => ({ id: i + 1, name, is_active: true })),
-    selections: [], submissions: [], scores: [], audit: []
+    selections: [], submissions: [], scores: [], audit: [],
+    briefs: ROUNDS.map(r => ({ round_id: r.id, brief: DEFAULT_ROUND_TASKS[r.id], update_text: null, update_released_at: null })),
+    judgeNotes: ROUNDS.map(r => ({ round_id: r.id, notes: DEFAULT_JUDGE_NOTES[r.id] })),
+    chatConfig: { ...DEFAULT_CHATBOT },
+    chatMessages: []
   };
 }
 
@@ -108,7 +113,11 @@ export function createDemoApi(storage = globalThis.localStorage) {
         settings: db.settings, rounds: db.rounds, platforms: db.platforms,
         selections: db.selections.filter(s => staff || s.team_id === myTeam),
         profiles: staff ? db.profiles : [],
-        audit: isHost() ? db.audit.slice(0, 200) : []
+        audit: isHost() ? db.audit.slice(0, 200) : [],
+        briefs: db.briefs.filter(b => staff || round(b.round_id)?.status !== 'upcoming'),
+        judgeNotes: staff ? db.judgeNotes : [],
+        chatConfig: staff || round(2)?.status !== 'upcoming' ? db.chatConfig : null,
+        chatMessages: db.chatMessages.filter(m => staff || m.team_id === myTeam)
       });
     },
 
@@ -162,7 +171,8 @@ export function createDemoApi(storage = globalThis.localStorage) {
       const problems = missingDeliverables(roundId, fields);
       need(!problems.length, problems[0]);
       const row = { id: ++db.seq, team_id: teamId, round_id: roundId, platform_id: declared.platform_id, status: 'Submitted',
-        submitted_by: me().id, created_at: now(), updated_at: now(), demo_verified: false, rejection_reason: null };
+        submitted_by: me().id, created_at: now(), updated_at: now(), demo_verified: false, rejection_reason: null,
+        ai_status: 'pending', ai_error: null, ai_model: null, ai_flagged: false };
       for (const k of SUBMISSION_FIELDS) row[k] = typeof fields[k] === 'string' ? (fields[k].trim() || null) : (fields[k] ?? null);
       db.submissions.unshift(row);
       audit('submissions', 'INSERT', null, row);
@@ -219,7 +229,7 @@ export function createDemoApi(storage = globalThis.localStorage) {
       need(!error, error);
       points.forEach((p, i) => {
         const existing = db.scores.find(x => x.submission_id === submissionId && x.criterion_index === i);
-        const row = { submission_id: submissionId, criterion_index: i, points: Number(p), feedback: feedback?.trim() || null, scored_by: me().id, updated_at: now() };
+        const row = { submission_id: submissionId, criterion_index: i, points: Number(p), feedback: feedback?.trim() || null, scored_by: me().id, source: 'human', updated_at: now() };
         audit('scores', existing ? 'UPDATE' : 'INSERT', existing ? { ...existing } : null, row);
         if (existing) Object.assign(existing, row); else db.scores.push({ id: ++db.seq, ...row });
       });
@@ -424,6 +434,74 @@ export function createDemoApi(storage = globalThis.localStorage) {
       audit('event_settings', 'UPDATE', { ...db.settings }, next);
       db.settings = next;
       save();
+    },
+    async updateBrief(roundId, fields) {
+      need(isHost(), 'Only a host can edit round tasks.');
+      const b = db.briefs.find(x => x.round_id === roundId);
+      audit('round_briefs', 'UPDATE', { ...b }, { ...b, ...fields });
+      Object.assign(b, fields);
+      save();
+    },
+    async updateJudgeNotes(roundId, notes) {
+      need(isHost(), 'Only a host can edit judge notes.');
+      db.judgeNotes.find(x => x.round_id === roundId).notes = notes;
+      save();
+    },
+    async updateChatConfig(fields) {
+      need(isHost(), 'Only a host can change the chatbot.');
+      audit('guardrail_config', 'UPDATE', { ...db.chatConfig }, { ...db.chatConfig, ...fields });
+      Object.assign(db.chatConfig, fields);
+      save();
+    },
+    /** Simulated AI judge (demo only): same rules as the server, deterministic scores. */
+    async aiScore(submissionId, force = false) {
+      const s = db.submissions.find(x => x.id === submissionId);
+      need(s, 'Submission not found.');
+      need(isStaff() || teamOf(me()?.id) === s.team_id, 'You can only request scoring for your own team.');
+      need(db.settings.ai_judging, 'AI judging is switched off by the host.');
+      need(s.status !== 'Rejected', 'Rejected submissions are not scored.');
+      if (s.ai_status === 'scored' && !(force && isHost())) return { status: 'already-scored' };
+      if (db.scores.some(x => x.submission_id === s.id && x.source === 'human')) {
+        Object.assign(s, { ai_status: 'scored', ai_error: 'Kept the human score.' });
+        save();
+        return { status: 'scored' };
+      }
+      const result = simulateJudge(s);
+      db.scores = db.scores.filter(x => x.submission_id !== s.id);
+      result.points.forEach((p, i) => db.scores.push({ id: ++db.seq, submission_id: s.id, criterion_index: i, points: p,
+        feedback: result.reasons[i], scored_by: null, source: 'ai', updated_at: now() }));
+      Object.assign(s, { ai_status: 'scored', ai_error: null, ai_model: result.model, ai_flagged: result.flagged, ai_scored_at: now() });
+      syncStatus(s);
+      audit('scores', 'INSERT', null, { submission_id: s.id, points: result.points, source: 'ai' });
+      save();
+      return { status: 'scored', total: result.points.reduce((a, b) => a + b, 0), ...result };
+    },
+    async requeueAi(submissionId) {
+      need(isHost(), 'Only a host can re-run the AI judge.');
+      const s = db.submissions.find(x => x.id === submissionId);
+      db.scores = db.scores.filter(x => !(x.submission_id === submissionId && x.source === 'ai'));
+      if (s.status === 'Scored') s.status = 'Under review';
+      Object.assign(s, { ai_status: 'pending', ai_error: null });
+      save();
+    },
+    /** Simulated Round 2 chatbot (demo only). */
+    async guardrailChat(message) {
+      const text = String(message ?? '').trim();
+      need(text, 'Type a message first.');
+      need(text.length <= 1000, 'Keep each message under 1000 characters.');
+      need(db.settings.ai_chatbot, 'The Round 2 chatbot is switched off by the host.');
+      const cfg = db.chatConfig;
+      const reply = simulateChatbot(cfg, text);
+      if (isStaff()) return { reply, remaining: null, preview: true };
+      const teamId = teamOf(me()?.id);
+      need(teamId, 'Your account is not linked to a team.');
+      need(isRoundAccepting(round(2)), 'The chatbot is available only while Round 2 is open.');
+      const used = db.chatMessages.filter(m => m.team_id === teamId && m.role === 'user').length;
+      need(used < cfg.max_messages_per_team, `Your team has used all ${cfg.max_messages_per_team} messages for this round.`);
+      db.chatMessages.push({ id: ++db.seq, team_id: teamId, role: 'user', content: text, created_at: now() },
+        { id: ++db.seq, team_id: teamId, role: 'bot', content: reply, created_at: now() });
+      save();
+      return { reply, remaining: cfg.max_messages_per_team - used - 1, preview: false };
     },
     async setRole(userId, newRole) {
       need(isHost(), 'Only a host can change roles.');
