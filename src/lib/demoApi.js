@@ -453,14 +453,26 @@ export function createDemoApi(storage = globalThis.localStorage) {
       Object.assign(db.chatConfig, fields);
       save();
     },
-    /** Simulated AI judge (demo only): same rules as the server, deterministic scores. */
-    async aiScore(submissionId, force = false) {
+    /** Simulated AI judge for a closed round (demo only): same rules as the server, deterministic scores. */
+    async aiScoreRound(roundId) {
+      need(isHost(), 'Only a host can run the AI judge for a round.');
+      need(db.settings.ai_judging, 'AI judging is switched off by the host.');
+      need(isRoundClosed(round(roundId)), 'The AI judge scores all teams together once the round closes. Close the round first.');
+      const pending = db.submissions.filter(s => s.round_id === Number(roundId) && s.status !== 'Rejected' && ['pending', 'failed', 'scoring'].includes(s.ai_status));
+      for (const s of pending) await this.aiScore(s.id);
+      return { scored: pending.length, remaining: 0 };
+    },
+    async aiTest() {
+      need(isHost(), 'Only a host can test the AI connection.');
+      return { ok: true, model: 'demo-simulated-judge', reply: 'OK (simulated — demo mode makes no real AI calls)' };
+    },
+    /** Simulated AI judge for one submission (demo only). */
+    async aiScore(submissionId) {
       const s = db.submissions.find(x => x.id === submissionId);
       need(s, 'Submission not found.');
-      need(isStaff() || teamOf(me()?.id) === s.team_id, 'You can only request scoring for your own team.');
+      need(isHost(), 'Only a host can re-run the AI judge.');
       need(db.settings.ai_judging, 'AI judging is switched off by the host.');
       need(s.status !== 'Rejected', 'Rejected submissions are not scored.');
-      if (s.ai_status === 'scored' && !(force && isHost())) return { status: 'already-scored' };
       if (db.scores.some(x => x.submission_id === s.id && x.source === 'human')) {
         Object.assign(s, { ai_status: 'scored', ai_error: 'Kept the human score.' });
         save();

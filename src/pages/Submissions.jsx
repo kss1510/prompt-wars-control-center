@@ -36,6 +36,6 @@ function AiStatus({ctx,s}){
   if(s.status==='Rejected') return <small className="muted">—</small>;
   if(human) return <small>Human score</small>;
   if(s.ai_status==='scored') return <small>{s.ai_flagged?<b className="warn-text">Scored · flagged</b>:'Scored'}</small>;
-  if(s.ai_status==='failed') return <span><small className="warn-text" title={s.ai_error||''}>Failed — retrying</small> <button className="text-button" onClick={()=>ctx.autoScore(s.id)}>Retry</button></span>;
-  return <small className="muted">{s.ai_status==='scoring'?'Scoring…':'Queued'}</small>;
+  if(s.ai_status==='failed') return <span><small className="warn-text" title={s.ai_error||''}>Failed — retrying</small>{ctx.isHost&&<> <button className="text-button" onClick={()=>ctx.autoScore(s.id)}>Retry</button></>}</span>;
+  return <small className="muted">{s.ai_status==='scoring'?'Scoring…':'Waits for round close'}</small>;
 }

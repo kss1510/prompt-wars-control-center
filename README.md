@@ -132,31 +132,36 @@ other teams' work), so the Supabase advisor will keep listing them; they are onl
 - **Round tasks:** the host writes each round's task (shown to teams when the round opens) and private
   notes for the AI judge (never shown to teams) on **Rounds & scoring**. For Round 4 the host types the
   surprise update and clicks **Release update now** — it appears on every team's screen instantly.
-- **Round 2 chatbot:** a fictional bot (name, persona, rules and a per-team message cap set by the host)
-  that teams test on the **Round 2 chatbot** page while Round 2 is open. Every message is stored as
-  evidence (only the server can write it), and one click copies the conversation into the submission.
-- **AI judge:** when a team submits, the server sends the round task, the private notes, the rubric, the
-  automatic checks and the team's work to Google Gemini and records one score and reason per criterion.
-  Scores count on the leaderboard immediately. Team text is fenced as untrusted data; manipulation
-  attempts are flagged. Scores are capped by the database. A host can re-run the AI judge or override any
-  score (human scores always win), and every change is audited.
-- **If Gemini is busy** (free-tier rate limit) the submission stays queued and the **host's open portal**
-  retries it automatically every 20 seconds — keep a host signed in during the event.
-- **Free tier note:** Google may use free-tier requests to improve its products — tell participants that
-  submissions are scored with AI assistance (Google Gemini). Gemini is also one of the platforms teams use.
-- **Where it runs:** `api/ai-score.js` and `api/guardrail-chat.js` are Vercel functions in this repo
-  (deployed with every push). They need `GEMINI_API_KEY` and `SUPABASE_SERVICE_ROLE_KEY` as Vercel
-  environment variables — server-only, never `VITE_`. Default models: `gemini-3.8-flash` (judge) and
-  `gemini-3.5-flash-lite` (chatbot); override with `GEMINI_JUDGE_MODEL` / `GEMINI_CHAT_MODEL`. Check your
-  project's free limits at https://aistudio.google.com/rate-limit.
-- **Demo mode** uses a simulated judge and chatbot (no network, clearly labelled). Locally, `npm run dev`
-  does not run the `api/` functions — use the deployed site (or `npx vercel dev`) to try the real AI.
+- **Round 2 chatbot (built in, free, unlimited):** a rule-based fictional bot (`src/lib/ruleBot.js`) that
+  teams test on the **Round 2 chatbot** page while Round 2 is open; the host sets its name, persona, rules
+  text and per-team message cap. It deliberately has two harmless weaknesses for teams to find (described
+  only in the Round 2 judge notes). Every message is stored server-side as evidence and one click copies
+  the conversation into the submission. Optional: set `CHATBOT_ENGINE=ai` on Vercel to answer with Gemini
+  Flash-Lite instead; whenever Gemini is busy the built-in bot answers, so Round 2 never stalls.
+- **AI judge (scores each round when it closes):** teams can edit until the round closes. Then the
+  host's open portal sends all of that round's entries — anonymous, in batches of up to 8 — with the task,
+  private notes, rubric and automatic checks to Google Gemini, which returns a score and reason per
+  criterion for every entry. Scores count immediately; the leaderboard updates round by round. Team text
+  is fenced as untrusted data, manipulation attempts are flagged, and the database caps every score. A host
+  can re-run the AI for one submission or override any score (human scores always win); all audited.
+- **Free tier:** about 2 AI requests per round (8 for the event). Limits seen on the organizers' project:
+  `gemini-3.8-flash` 5/min, 20/day; `gemini-3.5-flash-lite` and `gemini-3.1-flash-lite` 15/min, 500/day.
+  The judge tries the models in that order and falls through when one is busy or out of quota
+  (override with `GEMINI_JUDGE_MODELS`, comma-separated). Google may use free-tier requests to improve its
+  products — tell participants that submissions are scored with AI assistance (Google Gemini).
+- **Where it runs:** Vercel functions in `api/` (deployed with every push): `ai-score-round.js`,
+  `ai-score.js` (host re-run), `ai-test.js` (connection test) and `guardrail-chat.js`. They need
+  `GEMINI_API_KEY` and `SUPABASE_SERVICE_ROLE_KEY` as Vercel environment variables — server-only, never
+  `VITE_`. **Keep a host signed in during the event**: the host's portal runs the judge when rounds close
+  and retries anything that failed (a **Score this round now** button is on each closed round).
+- **Demo mode** uses a simulated judge (no network). Locally, `npm run dev` does not run the `api/`
+  functions — use the deployed site (or `npx vercel dev`) to try the real AI.
 - Turn either feature off under **Event settings → AI judge & Round 2 chatbot**; judging then falls back
   to manual scoring.
 
-Migration `20261114120000_ai_event_workspace.sql` adds `round_briefs`, `round_judge_notes`,
-`guardrail_config`, `guardrail_messages`, the AI fields on `submissions`/`scores`, and the server-only
-functions `ai_record_scores` / `ai_mark_submission`.
+Migrations `20261114120000_ai_event_workspace.sql` (tasks, judge notes, chatbot tables, AI fields,
+server-only `ai_record_scores` / `ai_mark_submission`) and `20261114150000_round2_rule_bot_notes.sql`
+(Round 2 judge notes describing the built-in bot).
 
 ## Judging and tie-break
 

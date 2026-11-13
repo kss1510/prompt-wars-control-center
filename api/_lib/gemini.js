@@ -1,7 +1,9 @@
 // Minimal Gemini client for the Interactions API (POST /v1beta/interactions, key in x-goog-api-key).
 // Stateless: store=false and a single user step per call. Server-side only — never import in the browser.
-export const DEFAULT_JUDGE_MODEL = 'gemini-3.8-flash';
-export const DEFAULT_CHAT_MODEL = 'gemini-3.5-flash-lite';
+// Free-tier limits seen on the organizers' project (Nov 2026): 3.8 Flash 5 RPM / 20 RPD;
+// 3.5 and 3.1 Flash-Lite 15 RPM / 500 RPD each. Models are tried in order (see core.callWithFallback).
+export const DEFAULT_JUDGE_MODELS = ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
+export const DEFAULT_CHAT_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
 const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 
 export class GeminiError extends Error {

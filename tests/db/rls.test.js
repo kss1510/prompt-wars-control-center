@@ -443,6 +443,8 @@ test('round tasks are hidden until the round opens; judge notes are never visibl
   assert.match(visible[0].brief, /haiku/);
   assert.equal((await t.as(a[0], 'select * from public.round_judge_notes')).length, 0, 'judge notes never reach teams');
   assert.equal((await t.as(judge, 'select * from public.round_judge_notes')).length, 4);
+  const [r2] = await t.as(judge, 'select notes from public.round_judge_notes where round_id = 2');
+  assert.match(r2.notes, /two deliberate weaknesses/, 'Round 2 notes describe the built-in bot for the AI judge');
   await t.as(host, `update public.round_briefs set update_text = 'East gate flooded too', update_released_at = now() where round_id = 4`);
   assert.equal((await t.sql('select update_text from public.round_briefs where round_id = 4'))[0].update_text, 'East gate flooded too');
   assert.equal((await t.as(a[0], `update public.round_briefs set brief = 'hacked' where round_id = 1 returning round_id`)).length, 0);

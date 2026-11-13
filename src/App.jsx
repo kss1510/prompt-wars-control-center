@@ -4,7 +4,7 @@ import { supabase, configured, demoMode } from './lib/supabase';
 import { createSupabaseApi } from './lib/api';
 import { createDemoApi } from './lib/demoApi';
 import { MAX_TOTAL, EVENT_DEFAULTS } from './data';
-import { buildLeaderboard, roundFor, normalizeNames, teamRegistrationError } from './lib/rules';
+import { buildLeaderboard, roundFor, normalizeNames, teamRegistrationError, isRoundClosed } from './lib/rules';
 import { DemoBanner } from './components/ui';
 import { SubmissionModal, ReviewModal, TeamModal, ImportModal } from './components/modals';
 import { Overview } from './pages/Overview';
@@ -72,37 +72,39 @@ export default function App() {
     return ()=>{clearTimeout(timer);stop();};
   },[session?.user?.id,loadData]);
 
-  /**
-   * Ask the AI judge to score a submission. Never blocks the user: if Gemini is busy or down the
-   * submission stays queued and the host's open portal retries it (see the queue effect below).
-   */
+  /** Host: re-run the AI judge for one submission now. */
   const autoScore=useCallback(async id=>{
     if(!api) return;
     say('The AI judge is scoring this submission…');
     try { const r=await api.aiScore(id); if(r?.status==='scored') say(`Scored by the AI judge${r.total!=null?`: ${r.total} points`:''}.`); }
-    catch(e){ say(e.status===409?e.message:'The AI judge is busy — this submission will be scored automatically in a minute.'); }
+    catch(e){ setError(e.message); }
     finally { await loadData(); }
   },[loadData]);
 
-  // Host's portal works through the AI queue: pending submissions (left for 45 s, so the team's own
-  // request goes first) and failed ones, one at a time, spaced out for the free-tier rate limit.
+  // The host's open portal runs the AI judge: when a round closes, every unscored submission in it is
+  // scored together in batches (a few AI requests per round — fits the free tier). Busy or failed
+  // batches are retried on the next tick.
   const aiAttempts=useRef({});
   const aiRunning=useRef(false);
   useEffect(()=>{
     if(!api||d?.profile?.role!=='host'||!d?.settings?.ai_judging) return;
     const tick=async()=>{
       if(aiRunning.current) return;
-      const old=Date.now()-45000;
-      const queue=(d.submissions||[]).filter(s=>s.status!=='Rejected'&&(aiAttempts.current[s.id]||0)<6&&(
-        s.ai_status==='failed'||(s.ai_status==='pending'&&new Date(s.updated_at||s.created_at).getTime()<old)||
-        (s.ai_status==='scoring'&&new Date(s.updated_at||s.created_at).getTime()<Date.now()-120000)));
-      if(!queue.length) return;
+      const stale=Date.now()-180000;
+      const due=(d.rounds||[]).filter(r=>isRoundClosed(r)&&(aiAttempts.current[r.id]||0)<8&&(d.submissions||[]).some(s=>
+        s.round_id===r.id&&s.status!=='Rejected'&&(s.ai_status==='pending'||s.ai_status==='failed'||(s.ai_status==='scoring'&&new Date(s.updated_at||s.created_at).getTime()<stale))));
+      if(!due.length) return;
       aiRunning.current=true;
       try {
-        for(const s of queue.slice(0,5)){
-          aiAttempts.current[s.id]=(aiAttempts.current[s.id]||0)+1;
-          try { await api.aiScore(s.id); } catch { /* stays queued; retried next tick */ }
-          await new Promise(r=>setTimeout(r,2500));
+        for(const r of due){
+          for(let batch=0;batch<4;batch++){
+            aiAttempts.current[r.id]=(aiAttempts.current[r.id]||0)+1;
+            let res;
+            try { res=await api.aiScoreRound(r.id); } catch { break; /* retried next tick */ }
+            if(res?.scored) say(`AI judge scored ${res.scored} submission${res.scored===1?'':'s'} in Round ${r.id}.`);
+            if(!res?.remaining) { aiAttempts.current[r.id]=0; break; }
+            await new Promise(ok=>setTimeout(ok,4000));
+          }
         }
       } finally { aiRunning.current=false; loadData(); }
     };

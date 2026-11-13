@@ -132,7 +132,9 @@ export function createSupabaseApi(supabase) {
     updateJudgeNotes: (roundId, notes) => run(supabase.from('round_judge_notes').update({ notes }).eq('round_id', roundId)),
     updateChatConfig: fields => run(supabase.from('guardrail_config').update(pick(fields, ['bot_name', 'persona', 'rules', 'max_messages_per_team'])).eq('id', true)),
     // AI runs on the server (api/*.js) so the Gemini key and the service key never reach the browser.
-    aiScore: (submissionId, force = false) => callServer(supabase, '/api/ai-score', { submissionId, force }),
+    aiScore: submissionId => callServer(supabase, '/api/ai-score', { submissionId }),
+    aiScoreRound: roundId => callServer(supabase, '/api/ai-score-round', { roundId }),
+    aiTest: () => callServer(supabase, '/api/ai-test', {}),
     guardrailChat: message => callServer(supabase, '/api/guardrail-chat', { message }),
     requeueAi: id => run(supabase.rpc('host_requeue_ai', { p_submission: id })),
     setRole: (userId, role) => run(supabase.rpc('host_set_role', { p_user: userId, p_role: role }))

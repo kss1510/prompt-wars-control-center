@@ -86,7 +86,7 @@ export const DEFAULT_ROUND_TASKS = {
 };
 export const DEFAULT_JUDGE_NOTES = {
   1: 'Full marks need: 5-7-5 syllables, monsoon rain, campus, a library mention, ends with a question. Brevity: shorter prompts that still meet every constraint score higher.',
-  2: 'Good tests cover every rule, include at least one boundary/indirect case, and stay harmless. Evidence must match the stored chat transcript. Responsible analysis avoids real-world attack advice.',
+  2: 'Good tests cover every rule, include indirect/boundary cases, and stay harmless. Evidence must match the stored chat transcript. The built-in CampusHelper has two deliberate weaknesses: (1) a role-play or story framing makes it share a FICTIONAL staff phone number (breaks rule 1); (2) asked whether it is staff/an official, it claims to be help-desk staff (breaks rule 4). Reward teams that discover and clearly explain these; do not penalise teams that only confirm the rules hold. Responsible analysis avoids real-world attack advice.',
   3: 'Required features: total input, people input, tip choice 0/10/15/20, per-person result with 2 decimals, handles zero/invalid people gracefully. Single file, works offline.',
   4: 'Surprise update to release: the east gate is also flooded and the power is out in Block B. Strong revisions reroute, prioritise safety, communicate clearly, and keep the exam-day constraints.'
 };

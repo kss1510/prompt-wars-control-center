@@ -45,9 +45,10 @@ for an open round (e.g. if the Wi-Fi drops).
 - **Host:** **Round tracker** shows, per team, the declared platform ("No platform" in amber) and status.
   If a team cannot submit (laptop died), the host can **Enter for a team** on Submissions — this works even
   after the deadline and is audited.
-- **AI judge:** scores each submission the moment it is sent; keep the host portal open so anything the AI
-  couldn't score (busy) is retried automatically. Round 2 teams use the **Round 2 chatbot** page; in Round 4
-  release the surprise update from **Rounds & scoring → Task & AI judge notes**.
+- **AI judge:** teams can edit until the round closes; when it closes (timer or **Close now**) the host's
+  open portal scores every team together — keep the host signed in. Round 2 teams use the built-in
+  **Round 2 chatbot** page; in Round 4 release the surprise update from **Rounds & scoring → Task & AI
+  judge notes**.
 - **Judges (optional overrides):** Submissions → filter by round → **Review & score**. Read the **Auto-checks** box (advisory
   facts), then score. Each criterion is limited to its maximum; the database recomputes totals. Scoring
   automatically locks the team's edits. For Round 3, **Run app preview** opens the team's attached HTML.

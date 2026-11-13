@@ -32,6 +32,20 @@ export function createStore(env = process.env) {
     getJudgeNotes: id => one(db.from('round_judge_notes').select('notes').eq('round_id', id).maybeSingle()),
     getChatConfig: () => one(db.from('guardrail_config').select('bot_name, persona, rules, max_messages_per_team').eq('id', true).single()),
     getTranscript: teamId => one(db.from('guardrail_messages').select('role, content, created_at').eq('team_id', teamId).order('id', { ascending: true }).limit(200)),
+    /** Unscored, non-rejected submissions in a round (plus ones stuck "scoring" for 3+ minutes). */
+    async listPendingSubmissions(roundId) {
+      const rows = await one(db.from('submissions').select('*').eq('round_id', roundId).neq('status', 'Rejected')
+        .in('ai_status', ['pending', 'failed', 'scoring']).order('id', { ascending: true }));
+      const stale = Date.now() - 180_000;
+      return (rows || []).filter(s => s.ai_status !== 'scoring' || new Date(s.updated_at).getTime() < stale);
+    },
+    async getTranscriptsFor(teamIds) {
+      if (!teamIds.length) return {};
+      const rows = await one(db.from('guardrail_messages').select('team_id, role, content').in('team_id', teamIds).order('id', { ascending: true }));
+      const out = {};
+      for (const r of rows || []) (out[r.team_id] ||= []).push(r);
+      return out;
+    },
     async countUserMessages(teamId) {
       const { count, error } = await db.from('guardrail_messages').select('id', { count: 'exact', head: true }).eq('team_id', teamId).eq('role', 'user');
       if (error) throw new Error(error.message);

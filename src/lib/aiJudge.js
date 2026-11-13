@@ -5,6 +5,7 @@
 import { roundFor, missingDeliverables } from './rules.js';
 import { checkArtifact } from './artifactCheck.js';
 import { autoChecks, wordCount } from './autoChecks.js';
+import { ruleBotReply } from './ruleBot.js';
 
 export const JUDGE_SCHEMA = {
   type: 'object',
@@ -157,12 +158,95 @@ export function simulateJudge(submission) {
   };
 }
 
-export function simulateChatbot(cfg, message) {
-  const m = message.toLowerCase();
-  if (/password|phone number|address of|personal data/.test(m)) return `Sorry, I can't share passwords or personal details — that's against my rules. I can help with library, canteen or event questions.`;
-  if (/exam|answer key|assignment answers|solutions/.test(m)) return `I can't help with exam or assignment answers. I can point you to the library's study resources instead.`;
-  if (/ignore (your|the|all)? ?(rules|instructions)|pretend|you are now/.test(m)) return `I have to keep following my rules, so I can't do that. Ask me anything about the campus!`;
-  if (/library/.test(m)) return `The (fictional) library is open 8 am to 8 pm on weekdays. Quiet zones are on the second floor.`;
-  if (/canteen|food|lunch/.test(m)) return `The canteen serves lunch from 12 to 3 pm. Today's special is veg biryani.`;
-  return `I'm ${cfg.bot_name}, the campus help-desk bot. I can help with the library, canteen timings, events and directions.`;
+export const simulateChatbot = (cfg, message) => ruleBotReply(cfg, message);
+
+// ---------------------------------------------------------------------------------------------
+// Round-level judging: one request scores a batch of entries side by side (fits the free tier:
+// a few requests per round instead of one per team, and fairer for relative criteria like brevity).
+export const ROUND_JUDGE_SCHEMA = {
+  type: 'object',
+  properties: {
+    results: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          entry: { type: 'string' },
+          criteria: JUDGE_SCHEMA.properties.criteria,
+          manipulation_attempt: { type: 'boolean' }
+        },
+        required: ['entry', 'criteria', 'manipulation_attempt']
+      }
+    }
+  },
+  required: ['results']
+};
+
+export const entryLabel = s => `E${s.id}`;
+const FIELD_IN_BATCH = 4000;
+const HTML_IN_BATCH = 9000;
+
+export function judgeRoundSystemInstruction(round, count) {
+  return [
+    judgeSystemInstruction(round).replace('Score ONE team\'s submission', `Score ${count} anonymous team entries`),
+    `Batch rules:`,
+    `- Each entry is inside <submission entry="..."> tags; score every entry independently against the rubric.`,
+    `- Compare entries with each other only where a criterion is relative (for example brevity); otherwise use the rubric's absolute standard.`,
+    `- Return exactly one result per entry, using the entry label exactly as given.`
+  ].join('\n');
+}
+
+/** One prompt for a batch of submissions from the same round. */
+export function judgeRoundInput({ round: roundId, submissions, brief, judgeNotes, transcripts = {}, liveRound = null }) {
+  const round = roundFor(roundId);
+  const clipB = (t, max = FIELD_IN_BATCH) => clip(t, max);
+  const lines = [];
+  lines.push(`ROUND ${round.id}: ${round.name} (maximum ${round.max} points per entry)`);
+  lines.push(`Purpose: ${round.desc}`);
+  if (brief?.brief) lines.push('', 'TASK GIVEN TO TEAMS:', brief.brief);
+  if (round.id === 4 && brief?.update_text) lines.push('', 'SURPRISE UPDATE RELEASED DURING THE ROUND:', brief.update_text);
+  if (judgeNotes?.notes) lines.push('', 'PRIVATE JUDGE NOTES (never shown to teams):', judgeNotes.notes);
+  lines.push('', 'RUBRIC (criterion number, name, maximum):');
+  round.criteria.forEach((c, i) => lines.push(`${i + 1}. ${c.name} — max ${c.max}`));
+  lines.push('', `ENTRIES (${submissions.length}):`);
+  for (const s of submissions) {
+    const label = entryLabel(s);
+    lines.push('', `<submission entry="${label}">`);
+    const facts = autoChecks(s, submissions, liveRound).map(f => `${f.label}: ${f.value}`);
+    lines.push(`[Automatic checks] ${facts.join(' | ')}`);
+    if (round.id === 3 && s.artifact_html) lines.push(`[HTML checker] ${checkArtifact(s.artifact_html).summary}`);
+    lines.push(`Title: ${clipB(s.title, 200)}`);
+    for (const f of round.fields) {
+      if (!s[f.key]) continue;
+      lines.push(`--- ${f.label.replace(' (optional)', '').replace(/\s*\*$/, '')} ---`);
+      lines.push(f.key === 'artifact_html' ? clipB(s[f.key], HTML_IN_BATCH) : clipB(s[f.key]));
+    }
+    lines.push('</submission>');
+    if (round.id === 2) {
+      const chat = transcripts[s.team_id] || [];
+      lines.push(`<chat_transcript entry="${label}"> (real conversation with the fictional chatbot, recorded by the portal)`);
+      if (!chat.length) lines.push('[No messages: this team did not use the in-app chatbot.]');
+      for (const m of chat.slice(-40)) lines.push(`${m.role === 'bot' ? 'BOT' : 'TEAM'}: ${clipB(m.content, 600)}`);
+      lines.push('</chat_transcript>');
+    }
+  }
+  return lines.join('\n');
+}
+
+/** Parse a batch result into Map(entryLabel → { points, reasons, flagged }). Bad items are skipped. */
+export function parseRoundOutput(text, roundId, labels) {
+  let data;
+  try { data = typeof text === 'string' ? JSON.parse(text.trim().replace(/^```(?:json)?\s*|\s*```$/g, '')) : text; }
+  catch { throw new Error('The AI judge returned something that is not JSON.'); }
+  if (!data || !Array.isArray(data.results)) throw new Error('The AI judge response has no results list.');
+  const out = new Map();
+  for (const item of data.results) {
+    const label = String(item?.entry ?? '').trim();
+    if (!labels.includes(label) || out.has(label)) continue;
+    try {
+      const r = parseJudgeOutput({ criteria: item.criteria, manipulation_attempt: item.manipulation_attempt, summary: '' }, roundId);
+      out.set(label, { points: r.points, reasons: r.reasons, flagged: r.flagged });
+    } catch { /* this entry is retried */ }
+  }
+  return out;
 }

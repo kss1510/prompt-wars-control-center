@@ -33,7 +33,8 @@ function RoundControls({ctx,round}){
       <button className="button small primary" disabled={saving} onClick={()=>act(()=>api.updateRound(round.id,'open',Number(minutes)),open?`Round ${round.id} deadline set to ${minutes} minutes from now.`:`Round ${round.id} is open.`)}><Play size={14}/> {open?'Set new deadline':'Open round'}</button>
       {open&&<button className="button small" disabled={saving} onClick={()=>window.confirm(`Close Round ${round.id} now? Teams will no longer be able to submit or change platforms.`)&&act(()=>api.updateRound(round.id,'closed'),`Round ${round.id} closed.`)}><Square size={14}/> Close now</button>}
       {round.status!=='upcoming'&&<button className="button small" disabled={saving} onClick={()=>window.confirm(`Reset Round ${round.id} to upcoming? Existing submissions are kept.`)&&act(()=>api.updateRound(round.id,'upcoming',Number(minutes)),`Round ${round.id} reset.`)}><RotateCcw size={14}/> Reset</button>}</div>
-    {round.opens_at&&<small className="hint">Opened {fmtTime(round.opens_at)} · deadline {fmtTime(round.closes_at)} (database clock)</small>}</div>;
+    {round.opens_at&&<small className="hint">Opened {fmtTime(round.opens_at)} · deadline {fmtTime(round.closes_at)} (database clock)</small>}
+    {ctx.d.settings.ai_judging&&<AiRoundStatus ctx={ctx} round={round}/>}</div>;
 }
 
 /** Host: the task teams see once the round opens, private notes for the AI judge, Round 4 update. */
@@ -68,4 +69,17 @@ function ChatbotEditor({ctx}){
     <div className="modal-actions"><button type="button" className="text-button" onClick={()=>ctx.setPage('chatbot')}>Preview the chatbot</button>
       <button type="button" className="button small primary" disabled={saving} onClick={()=>act(()=>api.updateChatConfig({...form,max_messages_per_team:Number(form.max_messages_per_team)}),'Chatbot saved.')}><Save size={14}/> Save chatbot</button></div>
   </details>;
+}
+
+/** Host: AI judging progress for one round, and a button to score a closed round right away. */
+function AiRoundStatus({ctx,round}){
+  const {d,api,act,saving}=ctx;
+  const subs=d.submissions.filter(s=>s.round_id===round.id&&s.status!=='Rejected');
+  if(!subs.length) return null;
+  const waiting=subs.filter(s=>s.ai_status!=='scored').length;
+  const closed=round.status==='closed'||(round.closes_at&&new Date(round.closes_at)<=new Date());
+  return <p className="hint">AI judge: {subs.length-waiting}/{subs.length} scored.{' '}
+    {waiting>0&&(closed
+      ?<button type="button" className="text-button" disabled={saving} onClick={()=>act(()=>api.aiScoreRound(round.id),`AI judge ran for Round ${round.id}.`)}>Score this round now</button>
+      :'Scoring starts automatically when the round closes.')}</p>;
 }

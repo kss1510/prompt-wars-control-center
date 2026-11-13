@@ -53,8 +53,6 @@ export function SubmissionModal({ctx,roundId:initialRound,teamId:initialTeam,sub
       ? await act(()=>api.updateSubmission(existing.id,form),'Submission updated.')
       : await act(()=>api.submit({...form,team_id:teamId,round_id:roundId}),'Submission sent for review.');
     if(ok) close();
-    // The AI judge scores new submissions immediately (the host's screen retries if it is busy).
-    if(ok&&!existing&&ok.id&&d.settings.ai_judging) ctx.autoScore(ok.id);
   }
   const chat=d.chatMessages.filter(m=>m.team_id===teamId);
   function useChat(){
@@ -74,7 +72,7 @@ export function SubmissionModal({ctx,roundId:initialRound,teamId:initialTeam,sub
       <div className="rubric-label">JUDGING · MAX {round.max} POINTS</div><p className="muted">{round.criteria.map(c=>`${c.name} (${c.max})`).join(' · ')}</p>
     </div>
     {task?.brief&&<div className="task-box"><div className="rubric-label">YOUR TASK</div><p>{task.brief}</p>{roundId===4&&task.update_text&&<div className="update-box"><b>Surprise update:</b> {task.update_text}</div>}</div>}
-    {d.settings.ai_judging&&!existing&&<p className="hint"><Bot size={13}/> The AI judge scores your work as soon as you submit, and it can’t be edited after that — submit your final version.</p>}
+    {d.settings.ai_judging&&<p className="hint"><Bot size={13}/> The AI judge scores every team together when the round closes. You can edit your submission until then.</p>}
     {roundId===2&&!existing&&chat.length>0&&<button type="button" className="button small" onClick={useChat}><MessageSquare size={14}/> Use our chatbot conversation ({chat.filter(m=>m.role==='user').length} test{chat.filter(m=>m.role==='user').length===1?'':'s'})</button>}
     {!accepting&&<div className="alert error">This round is not open for submissions{live?.status==='upcoming'?' yet':''}.</div>}
     {teamId&&(existing?<p className="muted">AI platform: <b>{ctx.platformName(existing.platform_id)}</b> (declared by your team; recorded with this submission)</p>:<PlatformPicker ctx={ctx} teamId={teamId} roundId={roundId}/>)}
@@ -195,6 +193,6 @@ function AiJudgePanel({ctx,s,round,current,byAi}){
   </div>;
   if(current.length&&!byAi) return <p className="hint"><CheckCircle2 size={13}/> Scored by a judge or host (overrides the AI judge).</p>;
   if(s.ai_status==='failed') return <div className="alert error" aria-label="AI judge result"><span><b>AI judge could not score yet:</b> {s.ai_error||'unknown problem'}. It is retried automatically while a host has the portal open.</span>
-    {isStaff&&<button className="button small" disabled={saving} onClick={()=>ctx.autoScore(s.id)}>Retry now</button>}</div>;
-  return <div className="alert info" aria-label="AI judge result"><Bot size={16}/><span>The AI judge is scoring this submission… the score appears here automatically.</span></div>;
+    {isHost&&<button className="button small" disabled={saving} onClick={()=>ctx.autoScore(s.id)}>Retry now</button>}</div>;
+  return <div className="alert info" aria-label="AI judge result"><Bot size={16}/><span>{s.ai_status==='scoring'?'The AI judge is scoring this round now…':'Waiting for the round to close — the AI judge then scores every team together. The score appears here automatically.'}</span></div>;
 }

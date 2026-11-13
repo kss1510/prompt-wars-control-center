@@ -64,17 +64,17 @@ function AiSettings({ctx}){
   const count=st=>active.filter(x=>x.ai_status===st).length;
   async function testAi(){
     setTest('Testing…');
-    try { const r=await api.guardrailChat('Hello! In one sentence, who are you?'); setTest(`Working ✓ — the chatbot replied: “${r.reply}”`); }
+    try { const r=await api.aiTest(); setTest(`Working ✓ — ${r.model} replied “${r.reply}”.`); }
     catch(e){ setTest(`Not working: ${e.message}`); }
   }
   return <section className="panel" aria-label="AI judge settings"><div className="panel-title"><div><h2>AI judge &amp; Round 2 chatbot</h2>
-      <p className="muted">The AI judge scores every submission automatically; its scores count immediately. Any host or judge can override a score, and every change is audited.{ctx.demo?' Demo mode uses a simulated AI (no real AI calls).':' Runs on Google Gemini (free tier) from the server; submissions are sent to Google for scoring.'}</p></div></div>
+      <p className="muted">When a round closes, the AI judge scores every team together (a few AI requests per round); scores count immediately. Any host or judge can override a score, and every change is audited. The Round 2 chatbot is built in (no AI calls, unlimited).{ctx.demo?' Demo mode uses a simulated judge (no real AI calls).':' The judge runs on Google Gemini (free tier) from the server; submissions are sent to Google for scoring.'}</p></div></div>
     <div className="head-actions">
       <button className="button" disabled={saving} onClick={()=>act(()=>api.updateSettings({ai_judging:!s.ai_judging}),s.ai_judging?'AI judging switched off — judges score manually.':'AI judging switched on.')}>{s.ai_judging?'Turn AI judging off':'Turn AI judging on'}</button>
       <button className="button" disabled={saving} onClick={()=>act(()=>api.updateSettings({ai_chatbot:!s.ai_chatbot}),s.ai_chatbot?'Round 2 chatbot switched off.':'Round 2 chatbot switched on.')}>{s.ai_chatbot?'Turn chatbot off':'Turn chatbot on'}</button>
       <button className="button" onClick={testAi}>Test the AI connection</button>
     </div>
-    <p className="muted">AI judging: <b>{s.ai_judging?'on':'off'}</b> · chatbot: <b>{s.ai_chatbot?'on':'off'}</b> · queue: {count('scored')} scored, {count('pending')+count('scoring')} waiting, {count('failed')} retrying. Keep this host page open during the event — it retries anything the AI couldn’t score.</p>
+    <p className="muted">AI judging: <b>{s.ai_judging?'on':'off'}</b> · chatbot: <b>{s.ai_chatbot?'on':'off'}</b> · {count('scored')} scored, {count('pending')+count('scoring')} waiting for their round to close, {count('failed')} retrying. Keep this host page open during the event — it runs the AI judge when each round closes.</p>
     {test&&<p className={test.startsWith('Working')?'':'warn-text'} role="status">{test}</p>}
   </section>;
 }

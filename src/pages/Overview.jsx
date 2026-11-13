@@ -65,7 +65,7 @@ function MyTeam({ctx}){
         {ctx.briefFor(r.id)?.brief&&<div className="task-box"><div className="rubric-label">YOUR TASK</div><p>{ctx.briefFor(r.id).brief}</p>{r.id===4&&ctx.briefFor(r.id).update_text&&<div className="update-box"><b>Surprise update:</b> {ctx.briefFor(r.id).update_text}</div>}</div>}
         {r.id===2&&accepting&&d.chatConfig&&<button className="button small" onClick={()=>ctx.setPage('chatbot')}>Open the Round 2 chatbot</button>}
         <PlatformPicker ctx={ctx} teamId={myTeamId} roundId={r.id} compact/>
-        {sub&&d.settings.ai_judging&&['pending','scoring'].includes(sub.ai_status)&&!ctx.isFullyScored(sub)&&<p className="hint">The AI judge is scoring your submission…</p>}
+        {sub&&d.settings.ai_judging&&['pending','scoring','failed'].includes(sub.ai_status)&&!ctx.isFullyScored(sub)&&<p className="hint">{sub.ai_status==='scoring'?'The AI judge is scoring this round…':'Submitted. The AI judge scores every team when the round closes.'}</p>}
         {sub?<div className="round-sub"><StatusBadge status={sub.status}/>{ctx.isFullyScored(sub)&&<b>{ctx.subTotal(sub.id)} / {r.max}</b>}
             <button className="button small" onClick={()=>ctx.setModal({type:'review',submissionId:sub.id})}>View</button>
             {accepting&&sub.status==='Submitted'&&<button className="button small" onClick={()=>ctx.setModal({type:'submit',submissionId:sub.id})}>Edit</button>}</div>

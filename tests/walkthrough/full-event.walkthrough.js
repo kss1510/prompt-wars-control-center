@@ -41,7 +41,18 @@ async function openRound(page, name) {
   await pause(page, 800);
 }
 
-/** Pick a platform, fill the deliverables, submit — then the AI judge scores it automatically. */
+/** Host closes a round; the host's portal then runs the AI judge for every team in that round. */
+async function closeAndScore(page, roundName, roundNo, count) {
+  await as(page, 'Demo Host');
+  await nav(page, 'Rounds & scoring');
+  const card = roundCard(page, roundName);
+  await card.scrollIntoViewIfNeeded();
+  await card.getByRole('button', { name: 'Close now' }).click();
+  await expect(page.getByText(`AI judge scored ${count} submission${count === 1 ? '' : 's'} in Round ${roundNo}.`)).toBeVisible({ timeout: 20000 });
+  await caption(page, `Round ${roundNo} closed`, `The AI judge scored all ${count} teams together the moment the round closed`);
+}
+
+/** Pick a platform, fill the deliverables and submit (scored when the round closes). */
 async function submit(page, roundName, roundNo, platform, fields, before) {
   await nav(page, 'Overview');
   const card = roundCard(page, roundName);
@@ -54,15 +65,15 @@ async function submit(page, roundName, roundNo, platform, fields, before) {
   for (const [label, value] of Object.entries(fields)) await dialog.getByLabel(label, { exact: true }).fill(value);
   await pause(page, 600);
   await dialog.getByRole('button', { name: 'Submit for review' }).click();
-  await expect(page.getByText(/Scored by the AI judge: \d+ points\./)).toBeVisible();
-  await pause(page, 900);
+  await expect(page.getByText('Submission sent for review.')).toBeVisible();
+  await pause(page, 700);
 }
 
 test('Prompt Wars — full event walkthrough (AI-judged)', async ({ page }) => {
   page.on('dialog', d => d.accept());
   await page.goto('/');
   await caption(page, 'Prompt Wars Control Center', 'One app for the whole event · demo mode with fictional teams and a SIMULATED AI');
-  await caption(page, 'How it works', 'Teams submit in the app → the AI judge scores instantly → the leaderboard updates live');
+  await caption(page, 'How it works', 'Teams submit in the app → the round closes → the AI judge scores every team → leaderboard updates');
 
   // ---------------- Host setup ----------------
   await as(page, 'Demo Host');
@@ -103,17 +114,19 @@ test('Prompt Wars — full event walkthrough (AI-judged)', async ({ page }) => {
   await roundCard(page, 'Prompt Golf').scrollIntoViewIfNeeded();
   await caption(page, 'Round 1 · Demo Team Nova', 'The team reads its task, picks an AI platform and submits');
   await submit(page, 'Prompt Golf', 1, 'ChatGPT', { 'Submission title': 'Monsoon haiku', 'Prompt used *': 'Haiku 5-7-5: monsoon rain, campus, library, end with a question.', 'Generated output *': 'Rain on library glass / pages turn while puddles grow / will the sun return?' });
-  await caption(page, 'AI judge', 'Scored instantly — no human judge needed');
-  await roundCard(page, 'Prompt Golf').getByRole('button', { name: 'View' }).click();
-  await expect(page.getByLabel('AI judge result')).toContainText('Scored by the AI judge');
-  await caption(page, 'Transparent scoring', 'Every criterion gets a score and a reason from the AI judge');
-  await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
+  await caption(page, 'Submitted', 'Teams can still edit until the round closes; the AI judge then scores everyone together');
   await as(page, 'Esha (demo)');
   await submit(page, 'Prompt Golf', 1, 'Gemini', { 'Submission title': 'Haiku v2', 'Prompt used *': 'Write a haiku about monsoon rain on a campus with a library, ending in a question.', 'Generated output *': 'Grey skies over halls / the library hums with rain / shall we wait or run?' });
   await as(page, 'Jay (demo, unassigned)');
   await submit(page, 'Prompt Golf', 1, 'Claude', { 'Submission title': 'Comet haiku', 'Prompt used *': 'Please write me a nice long haiku poem about rain at college and the library.', 'Generated output *': 'Puddles hold the sky / the library smells of rain / is the canteen dry?' });
+  await closeAndScore(page, 'Prompt Golf', 1, 3);
+  await as(page, 'Asha (demo)');
+  await roundCard(page, 'Prompt Golf').getByRole('button', { name: 'View' }).click();
+  await expect(page.getByLabel('AI judge result')).toContainText('Scored by the AI judge');
+  await caption(page, 'Transparent scoring', 'Every team sees a score and a reason for each criterion — no human judge needed');
+  await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
   await nav(page, 'Leaderboard');
-  await caption(page, 'Live leaderboard', 'Standings update the moment the AI judge scores each team');
+  await caption(page, 'Live leaderboard', 'Standings update round by round as the AI judge scores each round');
   await pause(page, 1200);
 
   // ---------------- Round 2 ----------------
@@ -129,7 +142,7 @@ test('Prompt Wars — full event walkthrough (AI-judged)', async ({ page }) => {
     await expect(page.locator('.bubble.user').last()).toContainText(msg);
     await pause(page, 700);
   }
-  await caption(page, 'Chat evidence', 'The bot refused the password and the rule-break — every message is saved for the AI judge');
+  await caption(page, 'Built-in chatbot', 'Free and unlimited — it refused the password and the rule-break; every message is saved for the AI judge');
   await submit(page, 'Guardrail Challenge', 2, 'Gemini', {
     'Submission title': 'CampusHelper tests',
     'Analysis: were the rules followed? *': 'All rules held: on-topic answer, password refused, refused to drop its rules.'
@@ -147,8 +160,9 @@ test('Prompt Wars — full event walkthrough (AI-judged)', async ({ page }) => {
     'Analysis: were the rules followed? *': 'Personal data request was refused correctly.'
   }, async dialog => { await dialog.getByRole('button', { name: /Use our chatbot conversation/ }).click(); });
 
+  await closeAndScore(page, 'Guardrail Challenge', 2, 2);
+
   // ---------------- Round 3 ----------------
-  await as(page, 'Demo Host');
   await openRound(page, 'Artifact Forge');
   await as(page, 'Esha (demo)');
   await nav(page, 'Round 3 checker');
@@ -168,8 +182,9 @@ test('Prompt Wars — full event walkthrough (AI-judged)', async ({ page }) => {
   await as(page, 'Asha (demo)');
   await submit(page, 'Artifact Forge', 3, 'Claude', { 'Submission title': 'Tipper', 'Main prompt (+ at most one debugging prompt) *': 'Make a tip calculator page.', 'What the app does and how you tested it *': 'Shows per-person amount.', 'HTML / project file name *': 'tipper.html', 'Local demo details *': 'Seat 3 · open tipper.html' });
 
+  await closeAndScore(page, 'Artifact Forge', 3, 2);
+
   // ---------------- Round 4 ----------------
-  await as(page, 'Demo Host');
   await openRound(page, 'AI Survival Dilemma');
   await caption(page, 'Round 4 · AI Survival Dilemma (40 pts)', 'Teams plan for a campus crisis…');
   const r4 = roundCard(page, 'AI Survival Dilemma');
@@ -186,8 +201,9 @@ test('Prompt Wars — full event walkthrough (AI-judged)', async ({ page }) => {
   await as(page, 'Esha (demo)');
   await submit(page, 'AI Survival Dilemma', 4, 'ChatGPT', { 'Submission title': 'Exam-day plan', 'Prompts used *': 'Exam day flood response plan.', 'Initial plan *': 'Delay exams and open the east gate.', 'Revised plan after the update *': 'Delay exams and open the east gate.', 'Risks and mitigation steps *': 'Students late → extra time' });
 
+  await closeAndScore(page, 'AI Survival Dilemma', 4, 2);
+
   // ---------------- Results ----------------
-  await as(page, 'Demo Host');
   await nav(page, 'Submissions');
   await caption(page, 'Host view', 'Every submission was scored by the AI judge; a host can still override any score');
   await pause(page, 1500);
@@ -203,6 +219,6 @@ test('Prompt Wars — full event walkthrough (AI-judged)', async ({ page }) => {
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Full JSON backup' }).click();
   expect((await download).suggestedFilename()).toMatch(/^prompt-wars-backup-.*\.json$/);
-  await caption(page, 'Done', 'Registration → tasks → chatbot → AI judging → live leaderboard → backup, all in one app');
+  await caption(page, 'Done', 'Registration → tasks → chatbot → AI judging per round → leaderboard → backup, all in one app');
   await pause(page, 2000);
 });

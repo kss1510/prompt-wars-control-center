@@ -1,7 +1,9 @@
 // Shared Vercel handler plumbing: POST-only JSON, bearer token, consistent errors.
 import { ApiError } from './core.js';
 import { createStore } from './store.js';
-import { callGemini, DEFAULT_CHAT_MODEL, DEFAULT_JUDGE_MODEL } from './gemini.js';
+import { callGemini, DEFAULT_CHAT_MODELS, DEFAULT_JUDGE_MODELS } from './gemini.js';
+
+const list = (value, fallback) => (value ? String(value).split(',').map(s => s.trim()).filter(Boolean) : fallback);
 
 export function jsonHandler(run) {
   return async function handler(req, res) {
@@ -16,8 +18,9 @@ export function jsonHandler(run) {
       const gemini = opts => callGemini({ apiKey: env.GEMINI_API_KEY, ...opts });
       const result = await run({
         store, gemini, caller, body,
-        judgeModel: env.GEMINI_JUDGE_MODEL || DEFAULT_JUDGE_MODEL,
-        chatModel: env.GEMINI_CHAT_MODEL || DEFAULT_CHAT_MODEL
+        judgeModels: list(env.GEMINI_JUDGE_MODELS || env.GEMINI_JUDGE_MODEL, DEFAULT_JUDGE_MODELS),
+        chatModels: list(env.GEMINI_CHAT_MODELS || env.GEMINI_CHAT_MODEL, DEFAULT_CHAT_MODELS),
+        chatEngine: env.CHATBOT_ENGINE === 'ai' ? 'ai' : 'rules'
       });
       res.status(200).json(result);
     } catch (error) {
