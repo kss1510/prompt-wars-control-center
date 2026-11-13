@@ -1,5 +1,5 @@
 import React from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase, configured, demoMode } from './lib/supabase';
 import { createSupabaseApi } from './lib/api';
 import { createDemoApi } from './lib/demoApi';
@@ -43,7 +43,9 @@ export default function App() {
   const [modal,setModal]=useState(null);
   const [saving,setSaving]=useState(false);
 
-  const say=msg=>{setNotice(msg);window.setTimeout(()=>setNotice(''),4000);};
+  // Each confirmation gets its own 4 seconds; a newer message cancels the older message's timer.
+  const noticeTimer=useRef(null);
+  const say=msg=>{window.clearTimeout(noticeTimer.current);setNotice(msg);noticeTimer.current=window.setTimeout(()=>setNotice(''),4000);};
   const fail=err=>{console.error(err);setError(err?.message||String(err));};
 
   const loadData=useCallback(async () => {

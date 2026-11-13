@@ -12,7 +12,8 @@
     "test:db": "node --test tests/db/*.test.js",
     "test:e2e": "playwright test",
     "test:supabase": "node --test tests/integration/*.test.js",
-    "test": "npm run test:unit && npm run test:db && npm run test:e2e"
+    "test": "npm run test:unit && npm run test:db && npm run test:e2e",
+    "demo:video": "playwright test -c playwright.walkthrough.config.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.0",
