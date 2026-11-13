@@ -8,10 +8,11 @@ async function eventFixture() {
   const t = await createDb();
   const host = await t.user('host', 'Host');
   const judge = await t.user('judge', 'Judge');
-  const a = [await t.user(), await t.user(), await t.user(), await t.user()];
-  const b = [await t.user(), await t.user(), await t.user(), await t.user()];
-  const teamA = await t.team('Alpha', a);
-  const teamB = await t.team('Bravo', b);
+  // One account per team (the representative); members are recorded by name.
+  const a = [await t.user('student', 'RepA')];
+  const b = [await t.user('student', 'RepB')];
+  const teamA = await t.team('Alpha', a, ['Rep A', 'A Two', 'A Three', 'A Four']);
+  const teamB = await t.team('Bravo', b, ['Rep B', 'B Two', 'B Three']);
   const p = {
     chatgpt: await t.platformId('ChatGPT'),
     gemini: await t.platformId('Gemini'),
@@ -78,11 +79,11 @@ test('students cannot create teams or change memberships', async () => {
 test('a team can declare a different platform each round, but never reuse one', async () => {
   const { t, a, b, p } = await eventFixture();
   await choose(t, a[0], 1, p.chatgpt);
-  await choose(t, a[1], 2, p.gemini);
-  await choose(t, a[2], 3, p.claude);
-  await t.reject(a[3], 'select public.select_round_platform(4::smallint, $1::bigint)', [p.chatgpt],
+  await choose(t, a[0], 2, p.gemini);
+  await choose(t, a[0], 3, p.claude);
+  await t.reject(a[0], 'select public.select_round_platform(4::smallint, $1::bigint)', [p.chatgpt],
     /already used ChatGPT in Round 1/);
-  await choose(t, a[3], 4, p.fourth);
+  await choose(t, a[0], 4, p.fourth);
   const rows = await t.sql('select round_id, platform_id from public.team_round_platforms where team_id = (select team_id from public.team_members where user_id=$1) order by round_id', [a[0]]);
   assert.equal(new Set(rows.map(r => Number(r.platform_id))).size, 4);
 
@@ -105,7 +106,7 @@ test('platform choice can change before submitting, is locked after submitting, 
   const { t, a, p } = await eventFixture();
   await t.openRound(1);
   await choose(t, a[0], 1, p.chatgpt);
-  await choose(t, a[1], 1, p.gemini); // change of mind before submitting
+  await choose(t, a[0], 1, p.gemini); // change of mind before submitting
   await t.as(a[0], ...insertSubmission(await teamOf(t, a[0]), 1));
   await t.reject(a[0], 'select public.select_round_platform(1::smallint, $1::bigint)', [p.claude], /already submitted Round 1/);
   await t.closeRound(1);
@@ -164,7 +165,7 @@ test('submissions require the declared platform, an open round and the round del
   await choose(t, a[0], 1, await t.platformId('ChatGPT'));
   await t.reject(a[0], ...insertSubmission(team, 1, { title: 'x', prompt_text: 'p' }), /generated output/);
   await t.as(a[0], ...insertSubmission(team, 1));
-  await t.reject(a[1], ...insertSubmission(team, 1), /already has a submission for Round 1/);
+  await t.reject(a[0], ...insertSubmission(team, 1), /already has a submission for Round 1/);
 });
 
 test('round-specific deliverables are enforced for rounds 2, 3 and 4', async () => {
@@ -195,9 +196,8 @@ test('students cannot submit for, or read, another team', async () => {
   assert.equal((await t.as(a[0], 'select * from public.submissions')).length, 0);
   assert.equal((await t.as(a[0], 'select * from public.team_round_platforms')).length, 0);
   assert.equal((await t.as(a[0], 'select * from public.team_members')).length, 1, 'only own membership row');
-  const roster = await t.as(a[0], 'select * from public.my_team_roster()');
-  assert.equal(roster.length, 4);
-  assert.ok(!('email' in roster[0]), 'roster must not expose emails');
+  const [mine] = await t.as(a[0], 'select member_names from public.teams where id = (select team_id from public.team_members where user_id = $1)', [a[0]]);
+  assert.deepEqual(mine.member_names, ['Rep A', 'A Two', 'A Three', 'A Four'], 'members are names only — no emails or accounts');
 });
 
 test('students can edit only before review starts and before the deadline; cannot touch status or platform', async () => {
@@ -206,7 +206,7 @@ test('students can edit only before review starts and before the deadline; canno
   await t.openRound(1);
   await choose(t, a[0], 1, p.chatgpt);
   const [{ id }] = await t.as(a[0], ...insertSubmission(team, 1));
-  await t.as(a[1], `update public.submissions set output_text = 'better' where id = $1`, [id]);
+  await t.as(a[0], `update public.submissions set output_text = 'better' where id = $1`, [id]);
   await t.reject(a[0], `update public.submissions set status = 'Scored' where id = $1`, [id], /Only judges and hosts/);
   await t.reject(a[0], `update public.submissions set platform_id = $2 where id = $1`, [id, p.gemini], /permission denied/);
   await t.as(judge, `update public.submissions set status = 'Under review' where id = $1`, [id]);
@@ -278,25 +278,36 @@ test('hosts can hide standings from students (scores included) but staff still s
   assert.equal(unchanged.length, 0);
 });
 
-test('team size limits, captain rules and team freeze are enforced', async () => {
+test('one representative account per team, 3–4 member names, and team freeze are enforced', async () => {
   const { t, host, a, b, teamA, teamB } = await eventFixture();
   const extra = await t.user();
-  await t.reject(host, 'insert into public.team_members (team_id, user_id) values ($1, $2)', [teamB, extra], /maximum 4/);
-  await t.reject(host, 'update public.teams set captain_id = $2 where id = $1', [teamA, b[0]], /captain must be a member/);
-  await t.as(host, 'update public.teams set captain_id = $2 where id = $1', [teamA, a[0]]);
-  const small = await t.team('Charlie', [extra]);
-  await t.reject(host, 'select public.host_set_teams_locked(true)', [], /Charlie has 1/);
-  await t.as(host, 'delete from public.teams where id = $1', [small]);
+  await t.reject(host, 'insert into public.team_members (team_id, user_id) values ($1, $2)', [teamB, extra], /already has its representative account/);
+  await t.reject(host, `update public.teams set member_names = '{A,B,C,D,E}' where id = $1`, [teamA], /at most 4 members/);
+  await t.reject(host, `update public.teams set member_names = '{Ann,ann,Bo}' where id = $1`, [teamA], /listed twice/);
+  const studentEdit = await t.as(a[0], `update public.teams set member_names = '{X,Y,Z}' where id = $1 returning id`, [teamA]);
+  assert.equal(studentEdit.length, 0, 'RLS: a representative cannot edit the member list');
+  await t.as(host, `update public.teams set member_names = $2 where id = $1`, [teamA, ['  Rep A ', '', 'A Two', 'A Three']]);
+  const [{ member_names }] = await t.sql('select member_names from public.teams where id = $1', [teamA]);
+  assert.deepEqual(member_names, ['Rep A', 'A Two', 'A Three'], 'names are trimmed and blanks dropped');
+
+  const small = await t.team('Charlie', [extra], ['Solo']);
+  const norep = await t.team('Delta', [], ['D1', 'D2', 'D3']);
+  const err = await t.reject(host, 'select public.host_set_teams_locked(true)', []);
+  assert.match(err, /Charlie has 1 member \(needs 3–4\)/);
+  assert.match(err, /Delta has no representative account/);
+  await t.as(host, 'delete from public.teams where id = any($1)', [[small, norep]]);
   await t.reject(a[0], 'select public.host_set_teams_locked(true)', [], /Only a host/);
   await t.as(host, 'select public.host_set_teams_locked(true)');
-  await t.reject(host, 'delete from public.team_members where team_id = $1 and user_id = $2', [teamA, a[3]], /Teams are finalized/);
+  await t.reject(host, 'delete from public.team_members where team_id = $1 and user_id = $2', [teamA, a[0]], /Teams are finalized/);
   await t.reject(host, `insert into public.teams (name) values ('Late')`, [], /Teams are finalized/);
+  await t.reject(host, `update public.teams set member_names = '{P,Q,R}' where id = $1`, [teamB], /Teams are finalized/);
+  await t.as(host, `update public.teams set name = 'Bravo Renamed' where id = $1`, [teamB]); // renaming stays allowed
   await t.as(host, 'select public.host_set_teams_locked(false)');
   await t.as(host, 'delete from public.team_members where team_id = $1 and user_id = $2', [teamA, a[0]]);
-  const [{ captain_id }] = await t.sql('select captain_id from public.teams where id = $1', [teamA]);
-  assert.equal(captain_id, null, 'removing the captain clears the captain');
+  await t.as(host, 'insert into public.team_members (team_id, user_id) values ($1, $2)', [teamA, extra]);
   const judge = await t.user('judge');
-  await t.reject(host, 'insert into public.team_members (team_id, user_id) values ($1, $2)', [teamA, judge], /Only student accounts/);
+  await t.reject(host, 'insert into public.team_members (team_id, user_id) values ($1, $2)', [teamB, judge], /Only student accounts/);
+  assert.ok(b[0]);
 });
 
 test('rounds open and close on the database clock; only hosts control them', async () => {
@@ -314,27 +325,44 @@ test('rounds open and close on the database clock; only hosts control them', asy
   await t.as(host, ...insertSubmission(await teamOf(t, a[0]), 1, { ...VALID[1], submitted_by: host }));
 });
 
-test('roster import validates everything first and applies all-or-nothing', async () => {
+test('roster import: one row per person, one representative email per team, all-or-nothing', async () => {
   const t = await createDb();
   const host = await t.user('host', 'Host');
-  const people = [];
-  for (let i = 0; i < 6; i++) people.push(await t.user('student', `Imp${i}`));
-  const rows = [0, 1, 2, 3].map(i => ({ email: `imp${i}@test.local`, team: 'Imported', captain: i === 0 }));
-  const bad = [...rows, { email: 'ghost@test.local', team: 'Imported' }];
+  const rep1 = await t.user('student', 'Imp1');
+  const rep2 = await t.user('student', 'Imp2');
+  const rows = [
+    { team: 'Imported', name: 'Imp One', email: 'imp1@test.local' },
+    { team: 'Imported', name: 'Second Person' },
+    { team: 'Imported', name: 'Third Person' },
+    { team: 'Other', name: 'Imp Two', email: 'IMP2@test.local' },
+    { team: 'Other', name: 'O2' }, { team: 'Other', name: 'O3' }, { team: 'Other', name: 'O4' }
+  ];
+  const bad = [...rows.slice(0, 3), { team: 'Imported', name: 'Ghost', email: 'ghost@test.local' }, { team: 'Tiny', name: 'Alone' }];
   const [{ host_import_roster: dry }] = await t.as(host, 'select public.host_import_roster($1::jsonb, true)', [JSON.stringify(bad)]);
   assert.equal(dry.ok, false);
   assert.equal(dry.applied, false);
-  assert.match(dry.rows.at(-1).message, /No registered account/);
+  const messages = JSON.stringify(dry.rows);
+  assert.match(messages, /No registered account/);
+  assert.match(messages, /Lists 1 member; teams need 3–4/);
   assert.equal((await t.sql('select count(*)::int n from public.teams'))[0].n, 0, 'nothing applied when any row fails');
+
+  const twoReps = [...rows.slice(0, 3), { team: 'Imported', name: 'Imp Two', email: 'imp2@test.local' }];
+  const [{ host_import_roster: dup }] = await t.as(host, 'select public.host_import_roster($1::jsonb, false)', [JSON.stringify(twoReps)]);
+  assert.match(JSON.stringify(dup.rows), /More than one representative email/);
+
   const [{ host_import_roster: ok }] = await t.as(host, 'select public.host_import_roster($1::jsonb, true)', [JSON.stringify(rows)]);
-  assert.equal(ok.applied, true);
-  const [team] = await t.sql(`select t.captain_id, count(m.*)::int n from public.teams t join public.team_members m on m.team_id=t.id group by t.id`);
-  assert.equal(team.n, 4);
-  assert.equal(team.captain_id, people[0]);
-  const tooMany = [4, 5].map(i => ({ email: `imp${i}@test.local`, team: 'Imported' }));
-  const [{ host_import_roster: over }] = await t.as(host, 'select public.host_import_roster($1::jsonb, false)', [JSON.stringify(tooMany)]);
-  assert.equal(over.ok, false);
-  assert.match(JSON.stringify(over.rows), /exceed 4/);
+  assert.equal(ok.applied, true, JSON.stringify(ok.rows));
+  const teams = await t.sql(`select t.name, t.member_names, m.user_id from public.teams t left join public.team_members m on m.team_id = t.id order by t.name`);
+  assert.deepEqual(teams.map(r => [r.name, r.member_names.length, r.user_id]), [['Imported', 3, rep1], ['Other', 4, rep2]]);
+
+  // Re-import updates names; the same representative is fine, a different one is refused.
+  const again = [{ team: 'Imported', name: 'Imp One', email: 'imp1@test.local' }, { team: 'Imported', name: 'New Name' }, { team: 'Imported', name: 'Third Person' }];
+  const [{ host_import_roster: re }] = await t.as(host, 'select public.host_import_roster($1::jsonb, true)', [JSON.stringify(again)]);
+  assert.equal(re.applied, true);
+  assert.deepEqual((await t.sql(`select member_names from public.teams where name = 'Imported'`))[0].member_names, ['Imp One', 'New Name', 'Third Person']);
+  const swap = [{ team: 'Imported', name: 'X1', email: 'imp2@test.local' }, { team: 'Imported', name: 'X2' }, { team: 'Imported', name: 'X3' }];
+  const [{ host_import_roster: sw }] = await t.as(host, 'select public.host_import_roster($1::jsonb, false)', [JSON.stringify(swap)]);
+  assert.match(JSON.stringify(sw.rows), /already represents team Other/);
 });
 
 async function teamOf(t, userId) {
@@ -359,7 +387,7 @@ test('Round 3 HTML is stored with the submission and follows the team-work edit 
   const html = '<!DOCTYPE html><title>App</title><p>hi</p>';
   const [{ id }] = await t.as(a[0], ...insertSubmission(team, 3, { ...VALID[3], artifact_html: html }));
   assert.equal((await t.as(judge, 'select artifact_html from public.submissions where id=$1', [id]))[0].artifact_html, html);
-  await t.as(a[1], `update public.submissions set artifact_html = $2 where id = $1`, [id, html + '<p>v2</p>']);
+  await t.as(a[0], `update public.submissions set artifact_html = $2 where id = $1`, [id, html + '<p>v2</p>']);
   await t.reject(judge, `update public.submissions set artifact_html = 'x' where id = $1`, [id], /Judges cannot edit/);
   await t.reject(a[0], `update public.submissions set artifact_html = $2 where id = $1`, [id, 'x'.repeat(300001)], /artifact_html_length/);
   await t.as(judge, `update public.submissions set status = 'Under review' where id = $1`, [id]);

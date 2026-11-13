@@ -72,8 +72,9 @@ function wrap(db) {
       if (role !== 'student') await db.query(`update public.profiles set role = $2 where id = $1`, [id, role]);
       return id;
     },
-    async team(name, memberIds = []) {
-      const [{ id }] = (await db.query(`insert into public.teams (name) values ($1) returning id`, [name])).rows;
+    /** Team with (at most one) representative account and the participants' names. */
+    async team(name, memberIds = [], names = []) {
+      const [{ id }] = (await db.query(`insert into public.teams (name, member_names) values ($1, $2) returning id`, [name, names])).rows;
       for (const userId of memberIds) {
         await db.query(`insert into public.team_members (team_id, user_id) values ($1, $2)`, [id, userId]);
       }

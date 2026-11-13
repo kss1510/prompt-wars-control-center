@@ -1,4 +1,6 @@
-# Event-day runbook — 23 October 2026, 3:00–5:00 PM IST, ICT Classroom
+# Event-day runbook
+
+Date, time and venue: to be confirmed.
 
 ## Before the day
 
@@ -6,8 +8,10 @@
 2. ✅ Platforms confirmed: ChatGPT, Gemini, Claude, DeepSeek (+ Microsoft Copilot, Perplexity as backups).
    Check each opens on the classroom Wi-Fi.
 3. ✅ Tie-break confirmed: Round 4 → 3 → 2 → 1 (applied automatically on the leaderboard).
-4. Participants register at https://prompt-wars-gitam.vercel.app (no confirmation email — email confirmation is off). Host builds teams of 3–4 (**Teams → Create team** or
-   **Import roster** with `email,team,captain`), sets captains, then **Finalize teams**.
+4. **One person per team** (the representative) signs up at https://prompt-wars-gitam.vercel.app (no confirmation
+   email). Host builds teams of 3–4 members (**Teams → Create team**, or **Import roster** with one line per person:
+   `team,name,email`, email only on the representative's line), links each team's representative account, then
+   **Finalize teams**.
 5. Promote judges on **Event settings → People and roles**.
 6. Overview → **Event readiness** shows all green.
 7. Rehearse once with `npm run dev:demo`.
@@ -17,7 +21,7 @@
 
 | Time | What | Portal action (host) |
 |---|---|---|
-| 3:00 | Check-in and sign-in | Students sign in; each sees their team on Overview |
+| Start | Check-in and sign-in | Each team's representative signs in and sees the team on Overview |
 | 3:10 | Briefing: rules + AI-platform rule | — |
 | ~3:20 | Round 1 — Prompt Golf (12 min) | **Rounds & scoring → Open round** |
 | | Round 2 — Guardrail Challenge (13 min) | Close R1 (or let the timer expire), open R2 |
@@ -61,7 +65,7 @@ for an open round (e.g. if the Wi-Fi drops).
 
 | Problem | Action |
 |---|---|
-| A student sees "not assigned to a team" | Teams → unlock, assign, finalize again |
+| A representative sees "not linked to a team" | Teams → unlock, link their account to the team, finalize again |
 | "Round is not open" | Check the round state on Rounds & scoring; set a new deadline |
 | "No approved AI platform is left" | Platforms were deactivated — re-approve them on **AI platforms** |
 | Portal unreachable | Collect submissions on paper/shared doc; host enters them later via **Enter for a team** |

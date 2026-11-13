@@ -27,7 +27,7 @@ export function SettingsPage({ctx}){
   }
   const people=d.profiles.filter(p=>`${p.full_name} ${p.email}`.toLowerCase().includes(who.toLowerCase()));
   return <><PageHead eyebrow="HOST" title="Event settings" desc="Official timing, team size, standings visibility, roles, exports and audit trail."/>
-    <section className="panel"><div className="panel-title"><div><h2>Event</h2><p className="muted">Confirmed: 23 October 2026, 3:00–5:00 PM IST, ICT Classroom.</p></div></div>
+    <section className="panel"><div className="panel-title"><div><h2>Event</h2><p className="muted">Name, window used for the timing check, and team size limits.</p></div></div>
       <form onSubmit={save}><div className="form-grid"><Field label="Event name"><input value={form.event_name} onChange={e=>set('event_name',e.target.value)}/></Field><Field label="Venue"><input value={form.venue} onChange={e=>set('venue',e.target.value)}/></Field></div>
         <div className="form-grid"><Field label="Starts"><input type="datetime-local" value={form.starts_at} onChange={e=>set('starts_at',e.target.value)}/></Field><Field label="Ends"><input type="datetime-local" value={form.ends_at} onChange={e=>set('ends_at',e.target.value)}/></Field></div>
         <div className="form-grid"><Field label="Minimum team size"><input type="number" min="1" max="10" value={form.team_min_size} onChange={e=>set('team_min_size',e.target.value)}/></Field><Field label="Maximum team size"><input type="number" min="1" max="10" value={form.team_max_size} onChange={e=>set('team_max_size',e.target.value)}/></Field></div>

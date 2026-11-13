@@ -49,6 +49,11 @@ test('students see participant navigation only', async ({ page }) => {
     await expect(page.locator('.sidebar').getByRole('button', { name: hidden, exact: true })).toHaveCount(0);
   }
   await expect(page.getByRole('heading', { name: 'Demo Team Nova' })).toBeVisible();
+  // One account per team: teammates appear by name, and the account is the team's representative.
+  for (const name of ['Asha', 'Bilal', 'Chitra', 'Dev']) await expect(page.locator('.member-chips')).toContainText(name);
+  await expect(page.getByText('representative', { exact: false }).first()).toBeVisible();
+  await as(page, 'Jay (demo, unassigned)');
+  await expect(page.getByText('not linked to a team yet', { exact: false })).toBeVisible();
 });
 
 test('full round workflow: distinct platforms, validation, judging limits and leaderboard', async ({ page }) => {
@@ -112,7 +117,7 @@ test('full round workflow: distinct platforms, validation, judging limits and le
   await expect(page.getByTestId('cell-2-1')).toContainText('No platform');
 
   // Student sees their score once scored.
-  await as(page, 'Bilal (demo)');
+  await as(page, 'Asha (demo)');
   await expect(roundCard(page, 'Prompt Golf')).toContainText('21 / 25');
 });
 
@@ -144,7 +149,7 @@ test('only one platform left is explained, and a closed round locks submissions'
 
 test('Artifact Forge requires local demo details, rejects localhost evidence links, and judges verify the demo', async ({ page }) => {
   await hostOpensRounds(page, 'Artifact Forge');
-  await as(page, 'Chitra (demo)');
+  await as(page, 'Asha (demo)');
   const card = roundCard(page, 'Artifact Forge');
   await card.getByLabel('AI platform for Round 3').selectOption({ label: 'Claude' });
   await expect(page.getByText('AI platform saved for Round 3.')).toBeVisible();
@@ -178,7 +183,7 @@ test('Artifact Forge requires local demo details, rejects localhost evidence lin
 
 test('Round 4 stores initial and revised plans separately', async ({ page }) => {
   await hostOpensRounds(page, 'AI Survival Dilemma');
-  await as(page, 'Dev (demo)');
+  await as(page, 'Asha (demo)');
   const card = roundCard(page, 'AI Survival Dilemma');
   await card.getByLabel('AI platform for Round 4').selectOption({ label: 'DeepSeek' });
   await expect(page.getByText('AI platform saved for Round 4.')).toBeVisible();
@@ -198,52 +203,72 @@ test('Round 4 stores initial and revised plans separately', async ({ page }) => 
   await expect(view).toContainText('Block A road closed: use the east exit.');
 });
 
-test('host team management: create, rename, captain, and finalize only with valid sizes', async ({ page }) => {
+test('host team management: one representative account, member names, finalize only when complete', async ({ page }) => {
   await as(page, 'Demo Host');
   await nav(page, 'Teams');
   await page.getByRole('button', { name: 'Create team' }).click();
   const dialog = page.getByRole('dialog', { name: 'Create team' });
   await dialog.getByLabel('Team name').fill('Demo Team Comet');
-  await dialog.getByLabel(/Assign registered students/).selectOption({ label: 'Jay (demo, unassigned)' });
+  await dialog.getByLabel(/Representative account/).selectOption({ label: 'Jay (demo, unassigned) — demo-unassigned@demo.local' });
+  await dialog.getByLabel(/Team members/).fill('Jay\nKiran\nLeela\nMira\nNoor');
+  await expect(dialog.getByRole('alert')).toContainText('at most 4 members');
+  await expect(dialog.getByRole('button', { name: 'Create team' })).toBeDisabled();
+  await dialog.getByLabel(/Team members/).fill('Jay');
   await dialog.getByRole('button', { name: 'Create team' }).click();
   await expect(page.getByText('Team created.')).toBeVisible();
   const comet = page.getByTestId('team-Demo Team Comet');
   await expect(comet).toContainText('1/4 MEMBERS');
+  await expect(comet).toContainText('demo-unassigned@demo.local');
+  await expect(comet.getByLabel('Link representative account')).toHaveCount(0); // only one account per team
+
+  await page.getByRole('button', { name: 'Create team' }).click();
+  await dialog.getByLabel('Team name').fill('Demo Team Dawn');
+  await dialog.getByLabel(/Team members/).fill('Ira\nJo\nKai');
+  await dialog.getByRole('button', { name: 'Create team' }).click();
+  await expect(page.getByText('Team created.')).toBeVisible();
 
   await page.getByRole('button', { name: 'Finalize teams' }).click();
-  await expect(page.getByRole('alert')).toContainText('Demo Team Comet has 1 member (needs 3–4)');
+  const alert = page.getByRole('alert');
+  await expect(alert).toContainText('Demo Team Comet has 1 member (needs 3–4)');
+  await expect(alert).toContainText('Demo Team Dawn has no representative account');
+
+  await comet.getByRole('button', { name: 'Edit members' }).click();
+  await comet.getByLabel(/Members — one name per line/).fill('Jay\nKiran\nLeela');
+  await comet.getByRole('button', { name: 'Save members' }).click();
+  await expect(page.getByText('Members saved.')).toBeVisible();
+  await expect(comet).toContainText('3/4 MEMBERS');
+  const dawn = page.getByTestId('team-Demo Team Dawn');
+  await dawn.getByLabel('Link representative account').selectOption({ label: 'Hari (demo, unassigned) — demo-unassigned-2@demo.local' });
+  await expect(page.getByText('Representative linked.')).toBeVisible();
 
   await comet.getByRole('button', { name: 'Rename Demo Team Comet' }).click();
   await comet.getByLabel('Team name').fill('Demo Team Meteor');
   await comet.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Team renamed.')).toBeVisible();
-  const meteor = page.getByTestId('team-Demo Team Meteor');
-  await meteor.getByRole('button', { name: 'Make captain' }).click();
-  await expect(page.getByText('Captain set.')).toBeVisible();
-  await meteor.getByRole('button', { name: 'Delete Demo Team Meteor' }).click();
-  await expect(page.getByText('Team deleted.')).toBeVisible();
 
   await page.getByRole('button', { name: 'Finalize teams' }).click();
   await expect(page.getByText('Teams finalized.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Create team' })).toBeDisabled();
-  await expect(page.getByTestId('team-Demo Team Nova').getByLabel('Assign a student')).toHaveCount(0);
+  await expect(page.getByTestId('team-Demo Team Nova').getByRole('button', { name: 'Edit members' })).toHaveCount(0);
 });
 
-test('roster import validates every line before applying', async ({ page }) => {
+test('roster import: one line per person, email only on the representative line', async ({ page }) => {
   await as(page, 'Demo Host');
   await nav(page, 'Teams');
   await page.getByRole('button', { name: 'Import roster' }).click();
   const dialog = page.getByRole('dialog', { name: 'Import roster' });
-  await dialog.getByLabel('Roster CSV').fill('email,team,captain\ndemo-unassigned@demo.local,Demo Team Orbit,\nnobody@demo.local,Demo Team Orbit');
+  await dialog.getByLabel('Roster CSV').fill('team,name,email\nDemo Team Comet,Jay,nobody@demo.local\nDemo Team Comet,Kiran,\nDemo Team Comet,Leela,');
   await dialog.getByRole('button', { name: 'Check roster' }).click();
-  await expect(dialog).toContainText('No registered account with this email.');
-  await expect(dialog.getByRole('button', { name: /Import 2 rows/ })).toBeDisabled();
-  await dialog.getByLabel('Roster CSV').fill('demo-unassigned@demo.local,Demo Team Orbit');
+  await expect(dialog).toContainText('No registered account with this email');
+  await expect(dialog.getByRole('button', { name: /Import 3 rows/ })).toBeDisabled();
+  await dialog.getByLabel('Roster CSV').fill('team,name,email\nDemo Team Comet,Jay,demo-unassigned@demo.local\nDemo Team Comet,Kiran,\nDemo Team Comet,Leela,');
   await dialog.getByRole('button', { name: 'Check roster' }).click();
-  await expect(dialog).toContainText('Will be added.');
-  await dialog.getByRole('button', { name: /Import 1 rows/ }).click();
+  await expect(dialog).toContainText('Representative (signs in and submits).');
+  await dialog.getByRole('button', { name: /Import 3 rows/ }).click();
   await expect(page.getByText('Roster imported.')).toBeVisible();
-  await expect(page.getByTestId('team-Demo Team Orbit')).toContainText('4/4 MEMBERS');
+  const comet = page.getByTestId('team-Demo Team Comet');
+  await expect(comet).toContainText('3/4 MEMBERS');
+  await expect(comet).toContainText('demo-unassigned@demo.local');
 });
 
 test('host can hide standings from students and set a tie-break rule', async ({ page }) => {
@@ -262,7 +287,7 @@ test('host can hide standings from students and set a tie-break rule', async ({ 
 });
 
 test('Round 3 checker explains errors, previews the app safely, and judges see the same app with auto-checks', async ({ page }) => {
-  await as(page, 'Gauri (demo)');
+  await as(page, 'Esha (demo)');
   await nav(page, 'Round 3 checker');
   await expect(page.getByText('checker, not an AI', { exact: false })).toBeVisible();
   expectedErrors.push('Unexpected end of input'); // the broken sample below runs in the sandbox
@@ -286,7 +311,7 @@ test('Round 3 checker explains errors, previews the app safely, and judges see t
   await nav(page, 'Rounds & scoring');
   await roundCard(page, 'Artifact Forge').getByRole('button', { name: 'Open round' }).click();
   await expect(roundCard(page, 'Artifact Forge').locator('.tag.round-open')).toBeVisible();
-  await as(page, 'Gauri (demo)');
+  await as(page, 'Esha (demo)');
   const card = roundCard(page, 'Artifact Forge');
   await card.getByLabel('AI platform for Round 3').selectOption({ label: 'Perplexity' });
   await expect(page.getByText('AI platform saved for Round 3.')).toBeVisible();

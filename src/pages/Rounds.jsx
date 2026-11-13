@@ -9,7 +9,7 @@ export function RoundsPage({ctx}){
   const live=d.rounds.length?d.rounds:ROUNDS;
   const t=eventTiming(d.settings,live);
   return <><PageHead eyebrow="EVENT DESIGN / SCORING" title="Rounds & scoring" desc="Official challenge descriptions, deliverables, AI platform rule and judge rubrics."/>
-    <div className={`alert ${t.bufferMinutes<0?'error':'info'}`}><b>Event timing:</b> {live.map(r=>r.duration_minutes??r.minutes).join(' + ')} = {t.challengeMinutes} challenge minutes inside the {t.windowMinutes}-minute event window ({fmtTime(d.settings.starts_at)}–{fmtTime(d.settings.ends_at)}). That leaves {t.bufferMinutes} minutes for briefing, transitions, judging and the results announcement.</div>
+    <div className={`alert ${t.bufferMinutes<0?'error':'info'}`}><b>Event timing:</b> {live.map(r=>r.duration_minutes??r.minutes).join(' + ')} = {t.challengeMinutes} challenge minutes inside the {t.windowMinutes}-minute event window. That leaves {t.bufferMinutes} minutes for briefing, transitions, judging and the results announcement.</div>
     <div className="alert info"><b>Different AI platform every round:</b> each team declares one approved platform per round and may not reuse it in another round. The portal records the team’s declaration; it does not detect which tool was actually used.</div>
     <div className="round-cards">{ROUNDS.map(r=><article className="round-card" key={r.id}><div className="round-card-top"><span className="tag">ROUND {r.id}</span><RoundState round={ctx.roundRow(r.id)}/></div><h3>{r.name}</h3><p>{r.desc}</p>
       {r.responsible&&<p className="hint">{r.responsible}</p>}

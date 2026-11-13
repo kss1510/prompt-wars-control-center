@@ -15,7 +15,7 @@ function friendly(error) {
   if (/row-level security/i.test(msg)) return 'You do not have permission to do that.';
   if (/permission denied/i.test(msg)) return 'You do not have permission to change that.';
   if (/duplicate key.*teams_name_key/i.test(msg)) return 'A team with that name already exists.';
-  if (/duplicate key.*team_members_user_id_key/i.test(msg)) return 'That student is already on a team.';
+  if (/duplicate key.*team_members_user_id_key/i.test(msg)) return 'That account already represents a team.';
   if (/duplicate key.*ai_platforms_name_key/i.test(msg)) return 'That AI platform is already on the list.';
   if (/Failed to fetch|NetworkError/i.test(msg)) return 'Network problem — check the Wi-Fi connection and try again.';
   return msg;
@@ -38,7 +38,7 @@ export function createSupabaseApi(supabase) {
     async loadAll(user) {
       const results = await Promise.all([
         supabase.from('profiles').select('id,full_name,email,role').eq('id', user.id).single(),
-        supabase.from('teams').select('id,name,captain_id,created_at').order('name'),
+        supabase.from('teams').select('id,name,member_names,created_at').order('name'),
         supabase.from('team_members').select('team_id,user_id,created_at').order('created_at'),
         supabase.from('submissions').select('*').order('created_at', { ascending: false }),
         supabase.from('scores').select('id,submission_id,criterion_index,points,feedback,scored_by,updated_at'),
@@ -46,16 +46,15 @@ export function createSupabaseApi(supabase) {
         supabase.from('event_settings').select('*').single(),
         supabase.from('rounds').select('*').order('id'),
         supabase.from('ai_platforms').select('id,name,is_active').order('name'),
-        supabase.from('team_round_platforms').select('team_id,round_id,platform_id,selected_by,updated_at'),
-        supabase.rpc('my_team_roster')
+        supabase.from('team_round_platforms').select('team_id,round_id,platform_id,selected_by,updated_at')
       ]);
       for (const r of results) if (r.error) throw new Error(friendly(r.error));
-      const [p, teams, memberships, submissions, scores, roundScores, settings, rounds, platforms, selections, roster] = results.map(r => r.data);
+      const [p, teams, memberships, submissions, scores, roundScores, settings, rounds, platforms, selections] = results.map(r => r.data);
       let profiles = [];
       let audit = [];
       if (['host', 'judge'].includes(p.role)) profiles = await run(supabase.from('profiles').select('id,full_name,email,role').order('full_name'));
       if (p.role === 'host') audit = await run(supabase.from('audit_log').select('*').order('created_at', { ascending: false }).limit(200));
-      return { profile: p, teams, memberships, submissions, scores, roundScores, settings, rounds, platforms, selections, roster: roster || [], profiles, audit };
+      return { profile: p, teams, memberships, submissions, scores, roundScores, settings, rounds, platforms, selections, profiles, audit };
     },
 
     subscribe(onChange) {
@@ -80,14 +79,15 @@ export function createSupabaseApi(supabase) {
     saveScores: (submissionId, points, feedback) =>
       run(supabase.rpc('save_scores', { p_submission: submissionId, p_points: points.map(Number), p_feedback: feedback || null })),
 
-    async createTeam(name, memberIds = []) {
-      const team = await run(supabase.from('teams').insert({ name: name.trim() }).select('id').single());
-      if (memberIds.length) await run(supabase.from('team_members').insert(memberIds.map(user_id => ({ team_id: team.id, user_id }))));
+    /** One account per team: `repId` is the representative; everyone is listed in `memberNames`. */
+    async createTeam(name, repId = null, memberNames = []) {
+      const team = await run(supabase.from('teams').insert({ name: name.trim(), member_names: memberNames }).select('id').single());
+      if (repId) await run(supabase.from('team_members').insert({ team_id: team.id, user_id: repId }));
       return team;
     },
+    setMemberNames: (id, names) => run(supabase.from('teams').update({ member_names: names }).eq('id', id)),
     renameTeam: (id, name) => run(supabase.from('teams').update({ name: name.trim() }).eq('id', id)),
     deleteTeam: id => run(supabase.from('teams').delete().eq('id', id)),
-    setCaptain: (id, userId) => run(supabase.from('teams').update({ captain_id: userId || null }).eq('id', id)),
     addMember: (teamId, userId) => run(supabase.from('team_members').insert({ team_id: teamId, user_id: userId })),
     removeMember: (teamId, userId) => run(supabase.from('team_members').delete().eq('team_id', teamId).eq('user_id', userId)),
     setTeamsLocked: locked => run(supabase.rpc('host_set_teams_locked', { p_locked: locked })),

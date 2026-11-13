@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { ROUNDS } from '../data';
-import { missingDeliverables, platformOptions, scoreError, isRoundAccepting, isRoundClosed, roundFor, parseRosterCsv } from '../lib/rules';
+import { missingDeliverables, platformOptions, scoreError, isRoundAccepting, isRoundClosed, roundFor, parseRosterCsv, normalizeNames, memberNamesError } from '../lib/rules';
 import { autoChecks } from '../lib/autoChecks';
 import { Field, Modal, RoundState, StatusBadge, fmtDate } from './ui';
 import { ArtifactWorkbench } from './ArtifactWorkbench';
@@ -123,17 +123,23 @@ export function ReviewModal({ctx,submissionId,close}){
   </Modal>;
 }
 
+/** Create a team: one representative account (optional now, required to finalize) + every member's name. */
 export function TeamModal({ctx,close}){
   const {d,api,act,saving}=ctx;
   const [name,setName]=useState('');
-  const [members,setMembers]=useState([]);
+  const [rep,setRep]=useState('');
+  const [namesText,setNamesText]=useState('');
   const free=d.profiles.filter(p=>p.role==='student'&&!d.memberships.some(m=>m.user_id===p.id));
-  async function save(e){e.preventDefault();if(await act(()=>api.createTeam(name,members),'Team created.'))close();}
+  const names=normalizeNames(namesText);
+  const problem=memberNamesError(names,d.settings.team_max_size);
+  async function save(e){e.preventDefault();if(problem)return;if(await act(()=>api.createTeam(name,rep||null,names),'Team created.'))close();}
   return <Modal title="Create team" close={close}><form onSubmit={save}>
     <Field label="Team name"><input required maxLength="60" value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Prompt Pioneers"/></Field>
-    <Field label={`Assign registered students (optional, up to ${d.settings.team_max_size})`} hint="Hold Ctrl (Windows) or Cmd (Mac) to select multiple people."><select multiple value={members} onChange={e=>setMembers([...e.target.selectedOptions].map(o=>o.value))} size="6">{free.map(p=><option key={p.id} value={p.id}>{p.full_name||p.email}</option>)}</select></Field>
-    {members.length>d.settings.team_max_size&&<div className="alert error">A team can have at most {d.settings.team_max_size} members.</div>}
-    <div className="modal-actions"><button type="button" className="button" onClick={close}>Cancel</button><button disabled={saving||members.length>d.settings.team_max_size} className="button primary">{saving?'Creating…':'Create team'}</button></div>
+    <Field label="Representative account (signs in and submits)" hint="Only this person needs to sign up. You can link it later, but it is required before finalizing teams."><select value={rep} onChange={e=>setRep(e.target.value)}><option value="">Link later…</option>{free.map(p=><option key={p.id} value={p.id}>{p.full_name||p.email}{p.full_name?` — ${p.email}`:''}</option>)}</select></Field>
+    <Field label={`Team members — one name per line, including the representative (${names.length}/${d.settings.team_max_size})`}><textarea rows="5" value={namesText} onChange={e=>setNamesText(e.target.value)} placeholder={'Asha Rao\nBilal Khan\nChitra Iyer'}/></Field>
+    {problem&&<div className="alert error" role="alert">{problem}</div>}
+    {!problem&&names.length>0&&names.length<d.settings.team_min_size&&<p className="hint warn-text">Teams need {d.settings.team_min_size}–{d.settings.team_max_size} members before finalizing.</p>}
+    <div className="modal-actions"><button type="button" className="button" onClick={close}>Cancel</button><button disabled={saving||Boolean(problem)} className="button primary">{saving?'Creating…':'Create team'}</button></div>
   </form></Modal>;
 }
 
@@ -148,10 +154,10 @@ export function ImportModal({ctx,close}){
     if(result?.applied) close();
   }
   return <Modal title="Import roster" close={close} wide>
-    <p className="muted">Paste CSV lines <code>email,team,captain</code>. Participants must have registered their accounts first. The import is all-or-nothing: if any line has a problem, nothing changes.</p>
-    <Field label="Roster CSV"><textarea rows="8" value={text} onChange={e=>{setText(e.target.value);setReport(null);}} placeholder={'email,team,captain\nstudent1@gitam.in,Prompt Pioneers,yes\nstudent2@gitam.in,Prompt Pioneers'}/></Field>
+    <p className="muted">One line per participant: <code>team,name,email</code>. Put the email <b>only on the representative’s line</b> — that person must have signed up, and theirs is the team’s one account. Each team needs its members listed (the size rule counts names). All-or-nothing: if any line has a problem, nothing changes.</p>
+    <Field label="Roster CSV"><textarea rows="8" value={text} onChange={e=>{setText(e.target.value);setReport(null);}} placeholder={'team,name,email\nPrompt Pioneers,Asha Rao,asha@gitam.in\nPrompt Pioneers,Bilal Khan,\nPrompt Pioneers,Chitra Iyer,'}/></Field>
     {parsed.errors.map(e=><p key={e} className="warn-text">{e}</p>)}
-    {report&&<div className="table-wrap"><table><thead><tr><th>Line</th><th>Email</th><th>Team</th><th>Result</th></tr></thead><tbody>{report.rows.map((r,i)=><tr key={i}><td>{r.row??'—'}</td><td>{r.email||'—'}</td><td>{r.team}</td><td className={r.status==='error'?'warn-text':''}>{r.message}</td></tr>)}</tbody></table></div>}
+    {report&&<div className="table-wrap"><table><thead><tr><th>Line</th><th>Team</th><th>Name</th><th>Result</th></tr></thead><tbody>{report.rows.map((r,i)=><tr key={i}><td>{r.row??'—'}</td><td>{r.team}</td><td>{r.name||'—'}{r.email&&<small>{r.email}</small>}</td><td className={r.status==='error'?'warn-text':''}>{r.message}</td></tr>)}</tbody></table></div>}
     <div className="modal-actions"><button className="button" onClick={close}>Cancel</button><button className="button" disabled={saving||!parsed.rows.length} onClick={()=>run(false)}>Check roster</button><button className="button primary" disabled={saving||!report?.ok} onClick={()=>run(true)}>Import {parsed.rows.length} rows</button></div>
   </Modal>;
 }

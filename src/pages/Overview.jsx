@@ -3,13 +3,13 @@ import { ROUNDS, MAX_TOTAL } from '../data';
 import { readinessChecks, isRoundAccepting, roundFor } from '../lib/rules';
 import { PageHead, Stat, Empty, StatusBadge, RoundState } from '../components/ui';
 import { PlatformPicker } from '../components/modals';
-import { Activity, ArrowUpRight, CheckCircle2, CircleAlert, ClipboardList, Crown, FilePlus2, Medal, Trophy, Users } from 'lucide-react';
+import { Activity, ArrowUpRight, CheckCircle2, CircleAlert, ClipboardList, FilePlus2, Trophy, UserCheck, Users } from 'lucide-react';
 
 export function Overview({ctx}){
   const {d,profile,isHost,isStaff}=ctx;
   const first=profile?.full_name?.split(' ')[0];
   return <>
-    <PageHead eyebrow="EVENT DASHBOARD" title={`Welcome${first?', '+first:''}`} desc={`${d.settings.event_name} · ${new Date(d.settings.starts_at).toLocaleString([], {dateStyle:'medium',timeStyle:'short'})}–${new Date(d.settings.ends_at).toLocaleTimeString([], {timeStyle:'short'})} · ${d.settings.venue}`}
+    <PageHead eyebrow="EVENT DASHBOARD" title={`Welcome${first?', '+first:''}`} desc="Track the four rounds, your submissions and the standings."
       actions={!isStaff&&ctx.myTeamId?<button className="button primary" onClick={()=>ctx.setModal({type:'submit'})}><FilePlus2 size={16}/> New submission</button>:null}/>
     {isHost&&<HostReadiness ctx={ctx}/>}
     {isStaff?<StaffSummary ctx={ctx}/>:<MyTeam ctx={ctx}/>}
@@ -29,10 +29,10 @@ function StaffSummary({ctx}){
   const {d}=ctx;
   const active=d.submissions.filter(s=>s.status!=='Rejected');
   const awaiting=active.filter(s=>s.status!=='Scored');
-  const students=d.profiles.filter(p=>p.role==='student');
+  const people=d.teams.reduce((n,t)=>n+(t.member_names||[]).length,0);
   return <>
     <div className="stats">
-      <Stat label="Participants" value={students.length} foot={`${d.memberships.length} assigned to teams`} icon={Users}/>
+      <Stat label="Participants" value={people} foot={`${d.memberships.length} of ${d.teams.length} teams have their account linked`} icon={Users}/>
       <Stat label="Teams" value={d.teams.length} foot={d.settings.teams_locked?'Finalized':'Not finalized yet'} icon={Users}/>
       <Stat label="Awaiting judging" value={awaiting.length} foot={`${active.length} active submissions`} icon={ClipboardList}/>
       <Stat label="Leader" value={ctx.board[0]?.score??0} foot={ctx.board[0]?.score?`${ctx.board[0].name}${ctx.board[0].tied?' (tied)':''}`:'No scored submissions yet'} icon={Trophy}/>
@@ -49,10 +49,12 @@ function StaffSummary({ctx}){
 
 function MyTeam({ctx}){
   const {d,myTeam,myTeamId}=ctx;
-  if(!myTeam) return <section className="panel"><Empty text="You are not on a team yet. Ask the event host to assign you — your account is registered."/></section>;
+  if(!myTeam) return <section className="panel"><Empty text="Your account is not linked to a team yet. Each team has one account — ask the host to link yours as your team’s representative."/></section>;
+  const names=myTeam.member_names||[];
   return <>
-    <section className="panel"><div className="panel-title"><div><h2>{myTeam.name}</h2><p className="muted">{d.roster.length} members · same team for all four rounds</p></div><span className="tag">TEAM</span></div>
-      <div className="member-chips">{d.roster.map(m=><span key={m.user_id} className="chip">{m.is_captain&&<Crown size={13} aria-label="Captain"/>}{m.full_name||'Member'}{m.is_captain&&<small> · captain</small>}</span>)}</div></section>
+    <section className="panel"><div className="panel-title"><div><h2>{myTeam.name}</h2><p className="muted">{names.length} member{names.length===1?'':'s'} · same team for all four rounds</p></div><span className="tag">TEAM</span></div>
+      <div className="member-chips">{names.map(n=><span key={n} className="chip">{n}</span>)}{!names.length&&<span className="muted">The host has not added member names yet.</span>}</div>
+      <p className="hint"><UserCheck size={13}/> You are signed in as your team’s <b>representative</b>: this one account chooses the AI platform and submits for the whole team.</p></section>
     <div className="alert info"><b>AI platform rule:</b> your team must use a <b>different approved AI platform in every round</b>. Choose it before submitting; once you submit (or the round closes) it is locked.</div>
     <div className="round-cards">{ROUNDS.map(r=>{
       const live=ctx.roundRow(r.id);

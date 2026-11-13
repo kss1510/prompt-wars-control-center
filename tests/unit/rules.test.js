@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { ROUNDS, EVENT_DEFAULTS } from '../../src/data.js';
 import {
   missingDeliverables, platformOptions, platformChoiceError, duplicatePlatformTeams, scoreError,
-  teamSizeIssues, buildLeaderboard, eventTiming, readinessChecks, parseRosterCsv, isRoundAccepting, isRoundClosed, toCsv
+  teamSizeIssues, teamsWithoutRepresentative, normalizeNames, memberNamesError, buildLeaderboard, eventTiming, readinessChecks,
+  parseRosterCsv, isRoundAccepting, isRoundClosed, toCsv
 } from '../../src/lib/rules.js';
 
 const platforms = [
@@ -85,15 +86,28 @@ test('scoreError enforces criterion count, integers and per-criterion maxima', (
   assert.match(scoreError(3, [-1, 1, 1]), /between 0/);
 });
 
-test('teams of three or four pass; other sizes are flagged without hardcoding a team count', () => {
-  const teams = Array.from({ length: 15 }, (_, i) => ({ id: i + 1, name: `T${i + 1}` }));
-  const memberships = [];
-  teams.forEach((t, i) => { for (let m = 0; m < (i < 10 ? 3 : 4); m++) memberships.push({ team_id: t.id, user_id: `${t.id}-${m}` }); });
-  assert.equal(memberships.length, 50);
-  assert.deepEqual(teamSizeIssues(teams, memberships, 3, 4), [], '10 teams of 3 + 5 teams of 4 = 50 participants');
-  const extra = [...memberships, { team_id: 1, user_id: 'a' }, { team_id: 1, user_id: 'b' }, { team_id: 99, user_id: 'x' }];
-  const issues = teamSizeIssues([...teams, { id: 99, name: 'Solo' }], extra, 3, 4);
-  assert.deepEqual(issues.map(i => i.message), ['T1 has 5 members (needs 3–4).', 'Solo has 1 member (needs 3–4).']);
+test('team size counts member names (3–4), not accounts, without hardcoding a team count', () => {
+  const teams = Array.from({ length: 15 }, (_, i) => ({ id: i + 1, name: `T${i + 1}`,
+    member_names: Array.from({ length: i < 10 ? 3 : 4 }, (_, m) => `P${i}-${m}`) }));
+  assert.equal(teams.reduce((n, t) => n + t.member_names.length, 0), 50);
+  assert.deepEqual(teamSizeIssues(teams, 3, 4), [], '10 teams of 3 + 5 teams of 4 = 50 participants');
+  const odd = [{ ...teams[0], member_names: ['a', 'b', 'c', 'd', 'e'] }, { id: 99, name: 'Solo', member_names: ['x'] }, { id: 98, name: 'Empty' }];
+  assert.deepEqual(teamSizeIssues(odd, 3, 4).map(i => i.message),
+    ['T1 has 5 members (needs 3–4).', 'Solo has 1 member (needs 3–4).', 'Empty has 0 members (needs 3–4).']);
+});
+
+test('one representative account per team: teams without one are flagged', () => {
+  const teams = [{ id: 1, name: 'Linked' }, { id: 2, name: 'Unlinked' }];
+  assert.deepEqual(teamsWithoutRepresentative(teams, [{ team_id: 1, user_id: 'u1' }]).map(t => t.name), ['Unlinked']);
+});
+
+test('member names are trimmed, blank lines dropped, duplicates and oversize lists rejected', () => {
+  assert.deepEqual(normalizeNames('  Asha Rao \n\n Bilal\r\nChitra '), ['Asha Rao', 'Bilal', 'Chitra']);
+  assert.deepEqual(normalizeNames([' a ', '', null, 'b']), ['a', 'b']);
+  assert.equal(memberNamesError(['Asha', 'Bilal', 'Chitra'], 4), null);
+  assert.match(memberNamesError(['Asha', 'asha'], 4), /listed twice/);
+  assert.match(memberNamesError(['a', 'b', 'c', 'd', 'e'], 4), /at most 4 members \(this list has 5\)/);
+  assert.match(memberNamesError(['x'.repeat(81)], 4), /80 characters/);
 });
 
 test('leaderboard applies the confirmed tie-break: Round 4, then 3, 2, 1', () => {
@@ -129,20 +143,32 @@ test('round state helpers use the deadline, not just the status flag', () => {
   assert.equal(isRoundAccepting({ status: 'upcoming' }, now), false);
 });
 
-test('readiness checks flag missing fourth platform, unlocked teams and unconfirmed tie-break', () => {
+test('readiness checks flag missing fourth platform, unlocked teams and teams without an account', () => {
   const checks = readinessChecks({
     settings: EVENT_DEFAULTS, platforms: platforms.slice(0, 3), teams: [], memberships: [], profiles: [], rounds: ROUNDS
   });
   const failed = checks.filter(c => !c.ok).map(c => c.label);
   assert.ok(failed.includes('At least 4 approved AI platforms'));
   assert.ok(failed.includes('Teams finalized'));
+  const teams = [{ id: 1, name: 'Nova', member_names: ['A', 'B', 'C'] }, { id: 2, name: 'Orbit', member_names: ['D', 'E', 'F', 'G'] }];
+  const ready = readinessChecks({ settings: EVENT_DEFAULTS, platforms, teams, memberships: [{ team_id: 1, user_id: 'u1' }],
+    profiles: [{ id: 'u1', role: 'student' }, { id: 'j', role: 'judge' }], rounds: ROUNDS });
+  const repCheck = ready.find(c => c.label === 'Every team has its representative account');
+  assert.equal(repCheck.ok, false);
+  assert.match(repCheck.detail, /Missing: Orbit/);
+  assert.ok(ready.find(c => c.label.startsWith('Every team has 3–4 members')).ok);
   assert.ok(!failed.includes('Tie-break rule confirmed'), 'the confirmed tie-break is part of the defaults');
   assert.ok(checks.find(c => c.label.startsWith('Round durations')).ok);
 });
 
-test('roster CSV parsing handles headers, captains and bad lines; CSV output escapes quotes', () => {
-  const { rows, errors } = parseRosterCsv('email,team,captain\nA@x.edu, Team One ,yes\nb@x.edu,Team One\nbad-line');
-  assert.deepEqual(rows, [{ email: 'a@x.edu', team: 'Team One', captain: true }, { email: 'b@x.edu', team: 'Team One', captain: false }]);
+test('roster CSV: one line per person, email only for the representative; CSV output escapes quotes', () => {
+  const { rows, errors } = parseRosterCsv('team,name,email\n Team One , Asha Rao ,A@x.edu\nTeam One,Bilal,\nTeam One,Chitra\nbad-line');
+  assert.deepEqual(rows, [
+    { team: 'Team One', name: 'Asha Rao', email: 'a@x.edu' },
+    { team: 'Team One', name: 'Bilal' },
+    { team: 'Team One', name: 'Chitra' }
+  ]);
   assert.equal(errors.length, 1);
+  assert.match(errors[0], /Line 5: expected "team,name,email"/);
   assert.equal(toCsv([['a"b', 1]]), '"a""b","1"');
 });

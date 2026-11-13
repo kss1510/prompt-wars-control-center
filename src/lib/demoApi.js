@@ -2,9 +2,9 @@
 // touches Supabase. Personas replace sign-in, so there is NO real authorization here — the
 // rules below mirror the database so rehearsals behave like the real event, nothing more.
 import { ROUNDS, EVENT_DEFAULTS, SUBMISSION_FIELDS } from '../data.js';
-import { missingDeliverables, platformChoiceError, scoreError, isRoundAccepting, isRoundClosed, teamSizeIssues, roundFor } from './rules.js';
+import { missingDeliverables, platformChoiceError, scoreError, isRoundAccepting, isRoundClosed, teamSizeIssues, teamsWithoutRepresentative, normalizeNames, memberNamesError, roundFor } from './rules.js';
 
-const KEY = 'pw-demo-v2'; // v2: teams of 3–4
+const KEY = 'pw-demo-v3'; // v3: one account per team
 const now = () => new Date().toISOString();
 const persona = (id, full_name, role) => ({ id, full_name, email: `${id}@demo.local`, role });
 
@@ -12,19 +12,19 @@ function seed() {
   const profiles = [
     persona('demo-host', 'Demo Host', 'host'),
     persona('demo-judge', 'Demo Judge', 'judge'),
-    ...['Asha', 'Bilal', 'Chitra', 'Dev'].map((n, i) => persona(`demo-nova-${i + 1}`, `${n} (demo)`, 'student')),
-    ...['Esha', 'Farhan', 'Gauri'].map((n, i) => persona(`demo-orbit-${i + 1}`, `${n} (demo)`, 'student')),
+    // One account per team: only the representatives sign in. Teammates are names on the team.
+    persona('demo-nova-1', 'Asha (demo)', 'student'),
+    persona('demo-orbit-1', 'Esha (demo)', 'student'),
     persona('demo-unassigned', 'Jay (demo, unassigned)', 'student'),
-    persona('demo-unassigned-2', 'Hari (demo, unassigned)', 'student'),
-    persona('demo-unassigned-3', 'Isha (demo, unassigned)', 'student')
+    persona('demo-unassigned-2', 'Hari (demo, unassigned)', 'student')
   ];
   const teams = [
-    { id: 1, name: 'Demo Team Nova', captain_id: 'demo-nova-1', created_at: now() },
-    { id: 2, name: 'Demo Team Orbit', captain_id: null, created_at: now() }
+    { id: 1, name: 'Demo Team Nova', member_names: ['Asha', 'Bilal', 'Chitra', 'Dev'], created_at: now() },
+    { id: 2, name: 'Demo Team Orbit', member_names: ['Esha', 'Farhan', 'Gauri'], created_at: now() }
   ];
   const memberships = [
-    ...[1, 2, 3, 4].map(i => ({ team_id: 1, user_id: `demo-nova-${i}`, created_at: now() })),
-    ...[1, 2, 3].map(i => ({ team_id: 2, user_id: `demo-orbit-${i}`, created_at: now() }))
+    { team_id: 1, user_id: 'demo-nova-1', created_at: now() },
+    { team_id: 2, user_id: 'demo-orbit-1', created_at: now() }
   ];
   return {
     seq: 100,
@@ -107,10 +107,6 @@ export function createDemoApi(storage = globalThis.localStorage) {
         roundScores: visible ? roundScores() : [],
         settings: db.settings, rounds: db.rounds, platforms: db.platforms,
         selections: db.selections.filter(s => staff || s.team_id === myTeam),
-        roster: myTeam ? db.memberships.filter(m => m.team_id === myTeam).map(m => {
-          const p = db.profiles.find(x => x.id === m.user_id);
-          return { team_id: myTeam, user_id: m.user_id, full_name: p?.full_name, is_captain: db.teams.find(t => t.id === myTeam)?.captain_id === m.user_id };
-        }) : [],
         profiles: staff ? db.profiles : [],
         audit: isHost() ? db.audit.slice(0, 200) : []
       });
@@ -232,16 +228,19 @@ export function createDemoApi(storage = globalThis.localStorage) {
       return points.reduce((n, p) => n + Number(p), 0);
     },
 
-    async createTeam(name, memberIds = []) {
+    async createTeam(name, repId = null, memberNames = []) {
       need(isHost(), 'Only a host can manage teams.');
       need(!db.settings.teams_locked, 'Teams are finalized. Unlock teams before creating or deleting a team.');
       need(name.trim().length >= 1 && name.trim().length <= 60, 'Team names must be 1–60 characters.');
       need(!db.teams.some(t => t.name.toLowerCase() === name.trim().toLowerCase()), 'A team with that name already exists.');
-      const team = { id: ++db.seq, name: name.trim(), captain_id: null, created_at: now() };
+      const names = normalizeNames(memberNames);
+      const problem = memberNamesError(names, db.settings.team_max_size);
+      need(!problem, problem);
+      const team = { id: ++db.seq, name: name.trim(), member_names: names, created_at: now() };
       db.teams.push(team);
       audit('teams', 'INSERT', null, team);
       save();
-      for (const id of memberIds) await this.addMember(team.id, id);
+      if (repId) await this.addMember(team.id, repId);
       return { id: team.id };
     },
     async renameTeam(id, name) {
@@ -250,6 +249,17 @@ export function createDemoApi(storage = globalThis.localStorage) {
       const t = db.teams.find(x => x.id === id);
       audit('teams', 'UPDATE', { ...t }, { ...t, name: name.trim() });
       t.name = name.trim();
+      save();
+    },
+    async setMemberNames(id, memberNames) {
+      need(isHost(), 'Only a host can manage teams.');
+      need(!db.settings.teams_locked, 'Teams are finalized. Unlock teams before changing members.');
+      const names = normalizeNames(memberNames);
+      const problem = memberNamesError(names, db.settings.team_max_size);
+      need(!problem, problem);
+      const t = db.teams.find(x => x.id === id);
+      audit('teams', 'UPDATE', { ...t }, { ...t, member_names: names });
+      t.member_names = names;
       save();
     },
     async deleteTeam(id) {
@@ -261,19 +271,13 @@ export function createDemoApi(storage = globalThis.localStorage) {
       db.selections = db.selections.filter(s => s.team_id !== id);
       save();
     },
-    async setCaptain(id, userId) {
-      need(isHost(), 'Only a host can manage teams.');
-      need(!userId || db.memberships.some(m => m.team_id === id && m.user_id === userId), 'The captain must be a member of this team.');
-      db.teams.find(t => t.id === id).captain_id = userId || null;
-      save();
-    },
+    /** Link the team's single representative account. */
     async addMember(teamId, userId) {
       need(isHost(), 'Only a host can change team membership.');
       need(!db.settings.teams_locked, 'Teams are finalized. A host must unlock teams before changing membership.');
       need(db.profiles.find(p => p.id === userId)?.role === 'student', 'Only student accounts can be team members.');
-      need(!db.memberships.some(m => m.user_id === userId), 'That student is already on a team.');
-      const size = db.memberships.filter(m => m.team_id === teamId).length;
-      need(size < db.settings.team_max_size, `This team already has ${size} members (maximum ${db.settings.team_max_size}).`);
+      need(!db.memberships.some(m => m.user_id === userId), 'That account already represents a team.');
+      need(!db.memberships.some(m => m.team_id === teamId), 'This team already has its representative account. Remove it first to assign a different one.');
       db.memberships.push({ team_id: teamId, user_id: userId, created_at: now() });
       audit('team_members', 'INSERT', null, { team_id: teamId, user_id: userId });
       save();
@@ -282,8 +286,6 @@ export function createDemoApi(storage = globalThis.localStorage) {
       need(isHost(), 'Only a host can change team membership.');
       need(!db.settings.teams_locked, 'Teams are finalized. A host must unlock teams before changing membership.');
       db.memberships = db.memberships.filter(m => !(m.team_id === teamId && m.user_id === userId));
-      const t = db.teams.find(x => x.id === teamId);
-      if (t?.captain_id === userId) t.captain_id = null;
       audit('team_members', 'DELETE', { team_id: teamId, user_id: userId }, null);
       save();
     },
@@ -291,46 +293,68 @@ export function createDemoApi(storage = globalThis.localStorage) {
       need(isHost(), 'Only a host can finalize teams.');
       if (locked) {
         need(db.teams.length, 'Create teams before finalizing.');
-        const issues = teamSizeIssues(db.teams, db.memberships, db.settings.team_min_size, db.settings.team_max_size);
-        need(!issues.length, `Cannot finalize: ${issues.map(i => i.message).join(' ')}`);
+        const issues = [
+          ...teamSizeIssues(db.teams, db.settings.team_min_size, db.settings.team_max_size).map(i => i.message.replace(/\.$/, '')),
+          ...teamsWithoutRepresentative(db.teams, db.memberships).map(t => `${t.name} has no representative account`)
+        ];
+        need(!issues.length, `Cannot finalize: ${issues.join('; ')}.`);
       }
       db.settings.teams_locked = locked;
       save();
     },
+    /** Rows: one per participant {team, name, email?}; email only on the representative's row. */
     async importRoster(rows, apply) {
       need(isHost(), 'Only a host can import a roster.');
       need(!db.settings.teams_locked, 'Teams are finalized. Unlock teams before importing.');
+      const { team_min_size: min, team_max_size: max } = db.settings;
       const report = [];
-      const seen = new Set();
-      const incoming = {};
+      const plan = new Map();
+      const repEmails = new Set();
       rows.forEach((r, i) => {
-        const p = db.profiles.find(x => x.email.toLowerCase() === r.email.toLowerCase());
-        const current = p && db.teams.find(t => t.id === teamOf(p.id));
+        const team = (r.team || '').trim(), name = (r.name || '').trim(), email = (r.email || '').trim().toLowerCase() || null;
         let message = null;
-        if (seen.has(r.email)) message = 'Duplicate email in this file.';
-        else if (!p) message = 'No registered account with this email.';
-        else if (p.role !== 'student') message = `Account is a ${p.role}, not a student.`;
-        else if (current && current.name.toLowerCase() !== r.team.toLowerCase()) message = `Already on team ${current.name}.`;
-        else if (!current) incoming[r.team.toLowerCase()] = (incoming[r.team.toLowerCase()] || 0) + 1;
-        seen.add(r.email);
-        report.push({ row: i + 1, email: r.email, team: r.team, status: message ? 'error' : 'ok', message: message || (current ? 'Already on this team.' : 'Will be added.') });
+        if (!team || !name) message = 'Team and name are required.';
+        else {
+          const key = team.toLowerCase();
+          const info = plan.get(key) || { name: team, names: [], emails: [] };
+          if (info.names.some(n => n.toLowerCase() === name.toLowerCase())) message = 'This name is listed twice for the team.';
+          else {
+            info.names.push(name);
+            if (email) {
+              const p = db.profiles.find(x => x.email.toLowerCase() === email);
+              const current = p && db.teams.find(t => t.id === teamOf(p.id));
+              if (!p) message = 'No registered account with this email (the representative must sign up first).';
+              else if (p.role !== 'student') message = `Account is a ${p.role}, not a student.`;
+              else if (repEmails.has(email)) message = 'This email is already a representative in this file.';
+              else if (current && current.name.toLowerCase() !== key) message = `This account already represents team ${current.name}.`;
+              else { info.emails.push(email); repEmails.add(email); }
+            }
+          }
+          plan.set(key, info);
+        }
+        report.push({ row: i + 1, team, name, email, status: message ? 'error' : 'ok', message: message || (email ? 'Representative (signs in and submits).' : 'Member.') });
       });
-      for (const [name, n] of Object.entries(incoming)) {
-        const t = db.teams.find(x => x.name.toLowerCase() === name);
-        if ((t ? db.memberships.filter(m => m.team_id === t.id).length : 0) + n > db.settings.team_max_size)
-          report.push({ row: null, team: name, status: 'error', message: `Team would exceed ${db.settings.team_max_size} members.` });
+      for (const [key, info] of plan) {
+        const n = info.names.length;
+        if (info.emails.length > 1) report.push({ row: null, team: info.name, status: 'error', message: 'More than one representative email: each team has exactly one account.' });
+        if (n < min || n > max) report.push({ row: null, team: info.name, status: 'error', message: `Lists ${n} member${n === 1 ? '' : 's'}; teams need ${min}–${max}.` });
+        const existing = db.teams.find(t => t.name.toLowerCase() === key);
+        const rep = existing && db.memberships.find(m => m.team_id === existing.id);
+        const repEmail = rep && db.profiles.find(p => p.id === rep.user_id)?.email.toLowerCase();
+        if (repEmail && info.emails.length === 1 && repEmail !== info.emails[0])
+          report.push({ row: null, team: info.name, status: 'error', message: 'This team already has a different representative. Remove it on the Teams page first.' });
       }
       const errors = report.filter(r => r.status === 'error').length;
       if (apply && !errors) {
-        for (const r of rows) {
-          let t = db.teams.find(x => x.name.toLowerCase() === r.team.toLowerCase());
+        for (const [key, info] of plan) {
+          let t = db.teams.find(x => x.name.toLowerCase() === key);
           if (!t) {
-            const created = await this.createTeam(r.team);
+            const created = await this.createTeam(info.name, null, info.names);
             t = db.teams.find(x => x.id === created.id);
+          } else t.member_names = info.names;
+          if (info.emails.length === 1 && !db.memberships.some(m => m.team_id === t.id)) {
+            await this.addMember(t.id, db.profiles.find(p => p.email.toLowerCase() === info.emails[0]).id);
           }
-          const p = db.profiles.find(x => x.email.toLowerCase() === r.email.toLowerCase());
-          if (!teamOf(p.id)) await this.addMember(t.id, p.id);
-          if (r.captain) t.captain_id = p.id;
         }
         save();
       }

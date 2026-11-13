@@ -89,12 +89,37 @@ export const isRoundAccepting = (round, now = Date.now()) =>
 export const isRoundClosed = (round, now = Date.now()) =>
   Boolean(round) && (round.status === 'closed' || (round.closes_at && now >= new Date(round.closes_at).getTime()));
 
-/** Team-size problems against the configured limits. */
-export function teamSizeIssues(teams, memberships, min, max) {
-  return teams.map(t => ({ team: t, size: memberships.filter(m => m.team_id === t.id).length }))
+/**
+ * One account per team: only the representative signs in. Every participant is recorded by name
+ * in team.member_names, and that list is what the size rule counts (mirrors public.teams_guard).
+ */
+export const normalizeNames = list => {
+  const out = [];
+  for (const raw of Array.isArray(list) ? list : String(list || '').split(/\r?\n/)) {
+    const name = String(raw ?? '').trim();
+    if (name) out.push(name);
+  }
+  return out;
+};
+
+/** Error for a team's member-name list, else null. */
+export function memberNamesError(names, max) {
+  if (names.some(n => n.length > 80)) return 'Member names must be at most 80 characters.';
+  if (new Set(names.map(n => n.toLowerCase())).size !== names.length) return 'A member name is listed twice in this team.';
+  if (names.length > max) return `A team can have at most ${max} members (this list has ${names.length}).`;
+  return null;
+}
+
+/** Team-size problems against the configured limits (counting member names). */
+export function teamSizeIssues(teams, min, max) {
+  return teams.map(t => ({ team: t, size: (t.member_names || []).length }))
     .filter(x => x.size < min || x.size > max)
     .map(x => ({ ...x, message: `${x.team.name} has ${x.size} member${x.size === 1 ? '' : 's'} (needs ${min}–${max}).` }));
 }
+
+/** Teams that have no representative account yet. */
+export const teamsWithoutRepresentative = (teams, memberships) =>
+  teams.filter(t => !memberships.some(m => m.team_id === t.id));
 
 /**
  * Leaderboard from authoritative per-round rows ({team_id, round_id, points, scored}).
@@ -140,7 +165,8 @@ export function eventTiming(settings, rounds) {
 /** Host readiness checklist. Each item: {ok, label, detail}. */
 export function readinessChecks({ settings, platforms, teams, memberships, profiles, rounds }) {
   const active = platforms.filter(p => p.is_active);
-  const sizeIssues = teamSizeIssues(teams, memberships, settings.team_min_size, settings.team_max_size);
+  const sizeIssues = teamSizeIssues(teams, settings.team_min_size, settings.team_max_size);
+  const noRep = teamsWithoutRepresentative(teams, memberships);
   const students = profiles.filter(p => p.role === 'student');
   const unassigned = students.filter(p => !memberships.some(m => m.user_id === p.id));
   const timing = eventTiming(settings, rounds);
@@ -149,8 +175,10 @@ export function readinessChecks({ settings, platforms, teams, memberships, profi
       detail: `${active.length} active (${active.map(p => p.name).join(', ') || 'none'}). Each team needs a different platform in every round.` },
     { ok: teams.length > 0 && !sizeIssues.length, label: `Every team has ${settings.team_min_size}–${settings.team_max_size} members`,
       detail: teams.length ? (sizeIssues.map(i => i.message).join(' ') || `${teams.length} teams ready.`) : 'No teams yet.' },
-    { ok: !unassigned.length, label: 'Every registered student is on a team',
-      detail: unassigned.length ? `${unassigned.length} unassigned: ${unassigned.slice(0, 5).map(p => p.full_name || p.email).join(', ')}${unassigned.length > 5 ? '…' : ''}` : `${students.length} students assigned.` },
+    { ok: teams.length > 0 && !noRep.length, label: 'Every team has its representative account',
+      detail: teams.length ? (noRep.length ? `Missing: ${noRep.map(t => t.name).join(', ')}.` : 'Each team has the one account that signs in and submits.') : 'No teams yet.' },
+    { ok: !unassigned.length, label: 'No unlinked student accounts',
+      detail: unassigned.length ? `${unassigned.length} account(s) not linked to a team: ${unassigned.slice(0, 5).map(p => p.full_name || p.email).join(', ')}${unassigned.length > 5 ? '…' : ''}. Link them as a representative, or ignore extra sign-ups.` : 'Every student account represents a team.' },
     { ok: settings.teams_locked, label: 'Teams finalized', detail: settings.teams_locked ? 'Membership is frozen.' : 'Lock teams before Round 1 starts.' },
     { ok: profiles.some(p => p.role === 'judge' || p.role === 'host'), label: 'Judges assigned', detail: `${profiles.filter(p => p.role === 'judge').length} judge account(s).` },
     { ok: timing.bufferMinutes >= 0, label: 'Round durations fit the event window',
@@ -162,16 +190,19 @@ export function readinessChecks({ settings, platforms, teams, memberships, profi
 export const csvCell = v => `"${String(v ?? '').replaceAll('"', '""')}"`;
 export const toCsv = rows => rows.map(row => row.map(csvCell).join(',')).join('\r\n');
 
-/** Parse "email,team[,captain]" lines (header optional) into roster rows. */
+/**
+ * Parse roster CSV: one line per participant, "team,name,email" (header optional). Put the email
+ * only on the team representative's line — that is the one account that signs in and submits.
+ */
 export function parseRosterCsv(text) {
   const rows = [];
   const errors = [];
   text.split(/\r?\n/).map(l => l.trim()).filter(Boolean).forEach((line, i) => {
     const cells = line.split(',').map(c => c.trim().replace(/^"|"$/g, ''));
-    if (i === 0 && /email/i.test(cells[0])) return;
-    const [email, team, captain] = cells;
-    if (!email || !team) { errors.push(`Line ${i + 1}: expected "email,team[,captain]".`); return; }
-    rows.push({ email: email.toLowerCase(), team, captain: /^(y|yes|true|1|captain)$/i.test(captain || '') });
+    if (i === 0 && /^team$/i.test(cells[0]) && /^name$/i.test(cells[1] || '')) return;
+    const [team, name, email] = cells;
+    if (!team || !name) { errors.push(`Line ${i + 1}: expected "team,name,email" (email only for the representative).`); return; }
+    rows.push(email ? { team, name, email: email.toLowerCase() } : { team, name });
   });
   return { rows, errors };
 }

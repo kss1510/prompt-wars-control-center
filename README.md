@@ -1,7 +1,7 @@
 # Prompt Wars Control Center
 
-React + Vite + Supabase operations portal for **Prompt Wars: AI Survival Arena** (ACM GITAM AI/ML Domain) —
-29 October 2026, 3:00–5:00 PM IST, ICT Classroom, GITAM University. Offline event, ~50–60 participants.
+React + Vite + Supabase operations portal for **Prompt Wars: AI Survival Arena** (ACM GITAM AI/ML Domain).
+Offline event, ~50–60 participants. Date, time and venue: to be confirmed (set them in **Event settings**).
 
 It manages teams, round submissions, the per-round AI platform rule, judging, scores and the leaderboard.
 The **database** (Postgres row-level security, triggers and RPCs) is the security boundary; the React UI
@@ -10,7 +10,8 @@ only gives friendly feedback.
 ## Features
 
 - Email/password accounts (Supabase Auth). Roles `student`, `judge`, `host`; signup always creates `student`.
-- Teams of **3–4** (configurable; confirmed 18 Oct 2026), captains, roster CSV import/export, host-controlled **team freeze**.
+- **One account per team**: only the team's representative signs up and submits; the host lists every member
+  by name. Teams of **3–4** members (configurable), roster CSV import/export, host-controlled **team freeze**.
 - **Different AI platform every round** per team, enforced by a database unique constraint (see policy below).
 - Round-specific deliverables, deadlines on the database clock, one active submission per team per round.
 - Criterion-level judging validated against each rubric in the database; database-computed leaderboard

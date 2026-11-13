@@ -31,7 +31,7 @@ const NAV = [
   {id:'platforms',label:'AI platforms',icon:Cpu},
   {id:'settings',label:'Event settings',icon:Settings,host:true}
 ];
-const EMPTY = {teams:[],memberships:[],submissions:[],scores:[],roundScores:[],settings:EVENT_DEFAULTS,rounds:[],platforms:[],selections:[],roster:[],profiles:[],audit:[]};
+const EMPTY = {teams:[],memberships:[],submissions:[],scores:[],roundScores:[],settings:EVENT_DEFAULTS,rounds:[],platforms:[],selections:[],profiles:[],audit:[]};
 
 export default function App() {
   const [session,setSession]=useState(null);
@@ -88,7 +88,7 @@ export default function App() {
       myTeam:data.teams.find(t=>t.id===myTeamId),
       teamName:id=>data.teams.find(t=>t.id===id)?.name||`Team ${id}`,
       platformName:id=>data.platforms.find(p=>p.id===id)?.name||'—',
-      personName:id=>data.profiles.find(p=>p.id===id)?.full_name||data.roster.find(p=>p.user_id===id)?.full_name||(id===profile?.id?profile.full_name:'')||'—',
+      personName:id=>data.profiles.find(p=>p.id===id)?.full_name||(id===profile?.id?profile.full_name:'')||'—',
       roundRow:id=>data.rounds.find(r=>r.id===Number(id)),
       scoresFor,
       subTotal:id=>scoresFor(id).reduce((n,s)=>n+Number(s.points),0),
