@@ -8,10 +8,10 @@ Date, time and venue: to be confirmed.
 2. ✅ Platforms confirmed: ChatGPT, Gemini, Claude, DeepSeek (+ Microsoft Copilot, Perplexity as backups).
    Check each opens on the classroom Wi-Fi.
 3. ✅ Tie-break confirmed: Round 4 → 3 → 2 → 1 (applied automatically on the leaderboard).
-4. **One person per team** (the representative) signs up at https://prompt-wars-gitam.vercel.app (no confirmation
-   email). Host builds teams of 3–4 members (**Teams → Create team**, or **Import roster** with one line per person:
-   `team,name,email`, email only on the representative's line), links each team's representative account, then
-   **Finalize teams**.
+4. **One person per team** (the representative) signs up at https://prompt-wars-gitam.vercel.app with *Register a
+   team*: team name and the other members' names (3–4 people). Organizers and judges choose *Organizer / judge*;
+   promote them under **Event settings → People and roles**. Check the **Teams** page, fix anything, then
+   **Finalize teams** (this also closes registration).
 5. Promote judges on **Event settings → People and roles**.
 6. Overview → **Event readiness** shows all green.
 7. Rehearse once with `npm run dev:demo`.

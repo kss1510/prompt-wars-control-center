@@ -53,7 +53,7 @@ test('students see participant navigation only', async ({ page }) => {
   for (const name of ['Asha', 'Bilal', 'Chitra', 'Dev']) await expect(page.locator('.member-chips')).toContainText(name);
   await expect(page.getByText('representative', { exact: false }).first()).toBeVisible();
   await as(page, 'Jay (demo, unassigned)');
-  await expect(page.getByText('not linked to a team yet', { exact: false })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Register your team' })).toBeVisible();
 });
 
 test('full round workflow: distinct platforms, validation, judging limits and leaderboard', async ({ page }) => {
@@ -374,4 +374,40 @@ test('leaderboard breaks equal totals by Round 4 first', async ({ page }) => {
   await expect(rows.nth(1)).toContainText('Ahead on tie-break (Round 4)');
   await expect(rows.nth(2)).toContainText('Demo Team Nova');
   await expect(rows.nth(2)).toContainText('02');
+});
+
+test('a representative registers their own team, edits it, and registration closes when teams are finalized', async ({ page }) => {
+  await as(page, 'Jay (demo, unassigned)');
+  const form = page.getByRole('region', { name: 'Register your team' });
+  await expect(form).toBeVisible();
+  await form.getByLabel('Team name').fill('Demo Team Nova');
+  await form.getByLabel('Your name (as it should appear)').fill('Jay');
+  await form.getByLabel('Other team members — one name per line').fill('Kiran\nLeela');
+  await form.getByRole('button', { name: 'Register team' }).click();
+  await expect(form.getByRole('alert')).toContainText('"Demo Team Nova" is already taken');
+  await form.getByLabel('Team name').fill('Demo Team Comet');
+  await form.getByRole('button', { name: 'Register team' }).click();
+  await expect(page.getByText('Team registered. You are its representative.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Demo Team Comet' })).toBeVisible();
+  for (const n of ['Jay', 'Kiran', 'Leela']) await expect(page.locator('.member-chips')).toContainText(n);
+
+  await page.getByRole('button', { name: 'Edit team details' }).click();
+  await page.getByLabel(/Members, including you/).fill('Jay\nKiran\nLeela\nMira');
+  await page.getByRole('button', { name: 'Save team details' }).click();
+  await expect(page.getByText('Team details saved.')).toBeVisible();
+  await expect(page.locator('.member-chips')).toContainText('Mira');
+
+  // Host sees the self-registered team with its representative, then finalizes.
+  await as(page, 'Demo Host');
+  await nav(page, 'Teams');
+  const comet = page.getByTestId('team-Demo Team Comet');
+  await expect(comet).toContainText('4/4 MEMBERS');
+  await expect(comet).toContainText('demo-unassigned@demo.local');
+  await page.getByRole('button', { name: 'Finalize teams' }).click();
+  await expect(page.getByText('Teams finalized.')).toBeVisible();
+
+  await as(page, 'Jay (demo, unassigned)');
+  await expect(page.getByRole('button', { name: 'Edit team details' })).toHaveCount(0);
+  await as(page, 'Hari (demo, unassigned)');
+  await expect(page.getByText('Team registration is closed because teams are finalized.')).toBeVisible();
 });

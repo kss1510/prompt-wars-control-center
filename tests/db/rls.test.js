@@ -394,3 +394,41 @@ test('Round 3 HTML is stored with the submission and follows the team-work edit 
   const changed = await t.as(a[0], `update public.submissions set artifact_html = 'late' where id = $1 returning id`, [id]);
   assert.equal(changed.length, 0, 'no edits once review starts');
 });
+
+test('a representative registers their own team at sign-up; size, unique name and one team per account are enforced', async () => {
+  const { t, host, judge, a } = await eventFixture();
+  const rep = await t.user('student', 'NewRep');
+  const reg = (user, name, names) => t.as(user, 'select public.register_team($1, $2::text[]) id', [name, names]);
+  await t.reject(rep, 'select public.register_team($1, $2::text[])', ['Solo', ['Only Me']], /need 3 to 4 members including you \(you entered 1\)/);
+  await t.reject(rep, 'select public.register_team($1, $2::text[])', ['Alpha', ['N1', 'N2', 'N3']], /"Alpha" is already taken/);
+  await t.reject(rep, 'select public.register_team($1, $2::text[])', ['alpha', ['N1', 'N2', 'N3']], /already taken/);
+  await t.reject(rep, 'select public.register_team($1, $2::text[])', ['Dupes', ['Ann', 'ann', 'Bo']], /listed twice/);
+  await t.reject(rep, 'select public.register_team($1, $2::text[])', ['Big', ['1', '2', '3', '4', '5']], /need 3 to 4/);
+  const [{ id }] = await reg(rep, '  Nebula  ', [' New Rep ', 'Two', '', 'Three']);
+  const [team] = await t.sql('select t.name, t.member_names, m.user_id from public.teams t join public.team_members m on m.team_id = t.id where t.id = $1', [id]);
+  assert.deepEqual(team, { name: 'Nebula', member_names: ['New Rep', 'Two', 'Three'], user_id: rep });
+  await t.reject(rep, 'select public.register_team($1, $2::text[])', ['Second', ['A', 'B', 'C']], /already represents a team/);
+  await t.reject(a[0], 'select public.register_team($1, $2::text[])', ['Another', ['A', 'B', 'C']], /already represents a team/);
+  await t.reject(judge, 'select public.register_team($1, $2::text[])', ['Judges', ['A', 'B', 'C']], /Organizer and judge accounts/);
+  await t.reject(null, 'select public.register_team($1, $2::text[])', ['Anon', ['A', 'B', 'C']], /permission denied/);
+
+  // The trusted path cannot be reused for direct writes afterwards.
+  await t.reject(rep, `insert into public.teams (name) values ('Sneaky') returning id`, [], /Only a host|row-level security/);
+  const direct = await t.as(rep, `update public.teams set member_names = '{X,Y,Z}' where id = $1 returning id`, [id]);
+  assert.equal(direct.length, 0, 'direct table updates by a representative still match no rows');
+
+  // Representative edits their own team until finalized.
+  await t.as(rep, 'select public.update_my_team($1, $2::text[])', ['Nebula Prime', ['New Rep', 'Two', 'Three', 'Four']]);
+  assert.deepEqual((await t.sql('select name, member_names from public.teams where id = $1', [id]))[0],
+    { name: 'Nebula Prime', member_names: ['New Rep', 'Two', 'Three', 'Four'] });
+  await t.reject(rep, 'select public.update_my_team($1, $2::text[])', ['Bravo', ['A', 'B', 'C']], /"Bravo" is already taken/);
+  const loner = await t.user();
+  await t.reject(loner, 'select public.update_my_team($1, $2::text[])', ['Whatever', ['A', 'B', 'C']], /not linked to a team/);
+
+  await t.as(host, 'select public.host_set_teams_locked(true)');
+  await t.reject(rep, 'select public.update_my_team($1, $2::text[])', ['Late Change', ['A', 'B', 'C']], /registration is closed/);
+  const late = await t.user('student', 'Late');
+  await t.reject(late, 'select public.register_team($1, $2::text[])', ['Too Late', ['A', 'B', 'C']], /registration is closed/);
+  const audits = await t.sql(`select count(*)::int n from public.audit_log where table_name = 'teams' and actor = $1`, [rep]);
+  assert.ok(audits[0].n >= 2, 'self-registration and edits are audited with the representative as actor');
+});

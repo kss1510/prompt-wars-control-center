@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ROUNDS, MAX_TOTAL } from '../data';
-import { readinessChecks, isRoundAccepting, roundFor } from '../lib/rules';
-import { PageHead, Stat, Empty, StatusBadge, RoundState } from '../components/ui';
+import { readinessChecks, isRoundAccepting, roundFor, normalizeNames, teamRegistrationError } from '../lib/rules';
+import { PageHead, Stat, Empty, StatusBadge, RoundState, Field } from '../components/ui';
 import { PlatformPicker } from '../components/modals';
 import { Activity, ArrowUpRight, CheckCircle2, CircleAlert, ClipboardList, FilePlus2, Trophy, UserCheck, Users } from 'lucide-react';
 
@@ -49,12 +49,10 @@ function StaffSummary({ctx}){
 
 function MyTeam({ctx}){
   const {d,myTeam,myTeamId}=ctx;
-  if(!myTeam) return <section className="panel"><Empty text="Your account is not linked to a team yet. Each team has one account — ask the host to link yours as your team’s representative."/></section>;
+  if(!myTeam) return <RegisterTeam ctx={ctx}/>;
   const names=myTeam.member_names||[];
   return <>
-    <section className="panel"><div className="panel-title"><div><h2>{myTeam.name}</h2><p className="muted">{names.length} member{names.length===1?'':'s'} · same team for all four rounds</p></div><span className="tag">TEAM</span></div>
-      <div className="member-chips">{names.map(n=><span key={n} className="chip">{n}</span>)}{!names.length&&<span className="muted">The host has not added member names yet.</span>}</div>
-      <p className="hint"><UserCheck size={13}/> You are signed in as your team’s <b>representative</b>: this one account chooses the AI platform and submits for the whole team.</p></section>
+    <TeamDetails ctx={ctx} team={myTeam} names={names}/>
     <div className="alert info"><b>AI platform rule:</b> your team must use a <b>different approved AI platform in every round</b>. Choose it before submitting; once you submit (or the round closes) it is locked.</div>
     <div className="round-cards">{ROUNDS.map(r=>{
       const live=ctx.roundRow(r.id);
@@ -76,3 +74,66 @@ function MyTeam({ctx}){
 
 function MiniBoard({board}){return <div className="table-wrap"><table><thead><tr><th>Rank</th><th>Team</th><th>Points</th><th>Progress</th></tr></thead><tbody>{board.map(t=><tr key={t.id}><td>{t.rank===1&&t.score>0?'🏆':String(t.rank).padStart(2,'0')}{t.tied&&<small> (tied)</small>}</td><td><b>{t.name}</b></td><td><b>{t.score} / {MAX_TOTAL}</b></td><td><div className="progress"><span style={{width:`${Math.min(100,t.score/MAX_TOTAL*100)}%`}}/></div></td></tr>)}{!board.length&&<tr><td colSpan="4"><Empty text="No teams yet."/></td></tr>}</tbody></table></div>}
 export { MiniBoard };
+
+/** Shown to a signed-in representative whose team is not registered yet. */
+function RegisterTeam({ctx}){
+  const {d,api,act,saving,profile,userMeta}=ctx;
+  const {team_min_size:min,team_max_size:max,teams_locked:locked}=d.settings;
+  const organizer=userMeta.account_type==='organizer';
+  const [showForm,setShowForm]=useState(!organizer);
+  const [repName,setRepName]=useState(profile?.full_name||'');
+  const [teamName,setTeamName]=useState(userMeta.team_name||'');
+  const [othersText,setOthersText]=useState((userMeta.other_members||[]).join('\n'));
+  const [problem,setProblem]=useState('');
+  const tried=useRef(false);
+  const names=[repName.trim(),...normalizeNames(othersText)].filter(Boolean);
+  async function register(e){
+    e?.preventDefault();
+    const error=teamRegistrationError({teamName,names,min,max,takenNames:d.teams.map(t=>t.name)});
+    setProblem(error||'');
+    if(error) return;
+    await act(()=>api.registerTeam(teamName.trim(),names),'Team registered. You are its representative.');
+  }
+  // Teams entered at sign-up are registered automatically on first sign-in.
+  useEffect(()=>{
+    const exists=d.teams.some(t=>t.name.toLowerCase()===String(userMeta.team_name||'').trim().toLowerCase());
+    if(!locked&&!organizer&&userMeta.team_name&&!exists&&!tried.current){ tried.current=true; register(); }
+  },[]);
+  if(locked) return <section className="panel"><Empty text="Team registration is closed because teams are finalized. Contact the event host if your team is missing."/></section>;
+  if(!showForm) return <section className="panel"><Empty text="Organizer account: the host will give you judge or host access. You don’t need to register a team."/><p className="hint">Actually representing a team? <button className="text-button" onClick={()=>setShowForm(true)}>Register a team</button></p></section>;
+  return <section className="panel" aria-label="Register your team"><div className="panel-title"><div><h2>Register your team</h2><p className="muted">You are the team’s one account: you choose the AI platform and submit for everyone. Teammates don’t sign up.</p></div><span className="tag">STEP 1</span></div>
+    <form onSubmit={register} noValidate>
+      <div className="form-grid"><Field label="Team name"><input maxLength="60" value={teamName} onChange={e=>setTeamName(e.target.value)} placeholder="e.g. Prompt Pioneers"/></Field>
+        <Field label="Your name (as it should appear)"><input maxLength="80" value={repName} onChange={e=>setRepName(e.target.value)}/></Field></div>
+      <Field label="Other team members — one name per line" hint={`Team size: ${names.length} including you (needs ${min}–${max}).`}><textarea rows="3" value={othersText} onChange={e=>setOthersText(e.target.value)} placeholder={'Bilal Khan\nChitra Iyer'}/></Field>
+      {problem&&<div className="alert error" role="alert">{problem}</div>}
+      <div className="modal-actions"><span className="muted">Organizer or judge? Don’t register — ask the host for access.</span><button className="button primary" disabled={saving}>{saving?'Registering…':'Register team'}</button></div>
+    </form></section>;
+}
+
+/** The representative's team card; details stay editable until the host finalizes teams. */
+function TeamDetails({ctx,team,names}){
+  const {d,api,act,saving}=ctx;
+  const {team_min_size:min,team_max_size:max,teams_locked:locked}=d.settings;
+  const [editing,setEditing]=useState(false);
+  const [teamName,setTeamName]=useState(team.name);
+  const [namesText,setNamesText]=useState(names.join('\n'));
+  const [problem,setProblem]=useState('');
+  const draft=normalizeNames(namesText);
+  async function save(e){
+    e.preventDefault();
+    const error=teamRegistrationError({teamName,names:draft,min,max,takenNames:d.teams.filter(t=>t.id!==team.id).map(t=>t.name)});
+    setProblem(error||'');
+    if(error) return;
+    if(await act(()=>api.updateMyTeam(teamName.trim(),draft),'Team details saved.')) setEditing(false);
+  }
+  return <section className="panel"><div className="panel-title"><div><h2>{team.name}</h2><p className="muted">{names.length} member{names.length===1?'':'s'} · same team for all four rounds{locked?' · finalized':''}</p></div><span className="tag">TEAM</span></div>
+    {editing?<form onSubmit={save} noValidate>
+        <Field label="Team name"><input maxLength="60" value={teamName} onChange={e=>setTeamName(e.target.value)}/></Field>
+        <Field label={`Members, including you — one name per line (${draft.length}, needs ${min}–${max})`}><textarea rows="4" value={namesText} onChange={e=>setNamesText(e.target.value)}/></Field>
+        {problem&&<div className="alert error" role="alert">{problem}</div>}
+        <div className="inline-form"><button className="button small primary" disabled={saving}>Save team details</button><button type="button" className="button small" onClick={()=>{setEditing(false);setProblem('');setTeamName(team.name);setNamesText(names.join('\n'));}}>Cancel</button></div></form>
+      :<><div className="member-chips">{names.map(n=><span key={n} className="chip">{n}</span>)}{!names.length&&<span className="muted">No member names yet.</span>}</div>
+        {!locked&&<button className="button small" onClick={()=>{setTeamName(team.name);setNamesText(names.join('\n'));setEditing(true);}}>Edit team details</button>}</>}
+    <p className="hint"><UserCheck size={13}/> You are signed in as your team’s <b>representative</b>: this one account chooses the AI platform and submits for the whole team.</p></section>;
+}

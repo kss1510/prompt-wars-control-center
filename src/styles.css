@@ -47,3 +47,7 @@ textarea.code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-si
 .auto-checks{border:1px dashed var(--border);border-radius:12px;padding:10px 12px;margin:0 0 12px}
 .panel-inset{margin-top:12px}.panel-inset h4{margin:0 0 8px}
 td small{display:block}
+/* Sign-up account type switch */
+.segmented{display:flex;gap:4px;padding:4px;margin:12px 0;border:1px solid var(--border);border-radius:12px;background:var(--surface2)}
+.segmented button{flex:1;border:0;border-radius:9px;padding:8px 10px;background:transparent;color:var(--muted);font-weight:700}
+.segmented button.active{background:#26284c;color:var(--accent)}

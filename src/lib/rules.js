@@ -110,6 +110,20 @@ export function memberNamesError(names, max) {
   return null;
 }
 
+/**
+ * Self-registration check (mirrors public.validate_team_details): team name 1–60 characters, not
+ * already taken, and min–max member names including the representative. Returns an error or null.
+ */
+export function teamRegistrationError({ teamName, names, min, max, takenNames = [] }) {
+  const name = (teamName || '').trim();
+  if (!name || name.length > 60) return 'Team name must be 1–60 characters.';
+  if (takenNames.some(t => t.toLowerCase() === name.toLowerCase())) return `The team name "${name}" is already taken. Choose another.`;
+  const problem = memberNamesError(names, max);
+  if (problem) return problem;
+  if (names.length < min || names.length > max) return `Teams need ${min} to ${max} members including you (you entered ${names.length}).`;
+  return null;
+}
+
 /** Team-size problems against the configured limits (counting member names). */
 export function teamSizeIssues(teams, min, max) {
   return teams.map(t => ({ team: t, size: (t.member_names || []).length }))

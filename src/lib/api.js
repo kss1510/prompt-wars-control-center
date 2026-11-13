@@ -31,7 +31,9 @@ export function createSupabaseApi(supabase) {
         return () => subscription.unsubscribe();
       },
       signIn: async (email, password) => (await run(supabase.auth.signInWithPassword({ email, password }))).session,
-      signUp: async (email, password, fullName) => run(supabase.auth.signUp({ email, password, options: { data: { full_name: fullName } } })),
+      // `details` (team_name, other_members or account_type) is saved with the account so the team can be
+      // registered right after sign-in, even when email confirmation delays the first session.
+      signUp: async (email, password, fullName, details = {}) => run(supabase.auth.signUp({ email, password, options: { data: { full_name: fullName, ...details } } })),
       signOut: () => supabase.auth.signOut()
     },
 
@@ -86,6 +88,9 @@ export function createSupabaseApi(supabase) {
       return team;
     },
     setMemberNames: (id, names) => run(supabase.from('teams').update({ member_names: names }).eq('id', id)),
+    /** Representative self-service (enforced by the database until teams are finalized). */
+    registerTeam: (teamName, names) => run(supabase.rpc('register_team', { p_team_name: teamName, p_member_names: names })),
+    updateMyTeam: (teamName, names) => run(supabase.rpc('update_my_team', { p_team_name: teamName, p_member_names: names })),
     renameTeam: (id, name) => run(supabase.from('teams').update({ name: name.trim() }).eq('id', id)),
     deleteTeam: id => run(supabase.from('teams').delete().eq('id', id)),
     addMember: (teamId, userId) => run(supabase.from('team_members').insert({ team_id: teamId, user_id: userId })),

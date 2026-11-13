@@ -172,3 +172,15 @@ test('roster CSV: one line per person, email only for the representative; CSV ou
   assert.match(errors[0], /Line 5: expected "team,name,email"/);
   assert.equal(toCsv([['a"b', 1]]), '"a""b","1"');
 });
+
+test('self-registration validation mirrors the database: name, uniqueness and 3–4 members including the representative', async () => {
+  const { teamRegistrationError } = await import('../../src/lib/rules.js');
+  const base = { min: 3, max: 4, takenNames: ['Nova'] };
+  assert.equal(teamRegistrationError({ ...base, teamName: 'Comet', names: ['Jay', 'Kiran', 'Leela'] }), null);
+  assert.match(teamRegistrationError({ ...base, teamName: '  ', names: ['a', 'b', 'c'] }), /1–60 characters/);
+  assert.match(teamRegistrationError({ ...base, teamName: 'x'.repeat(61), names: ['a', 'b', 'c'] }), /1–60 characters/);
+  assert.match(teamRegistrationError({ ...base, teamName: 'nova', names: ['a', 'b', 'c'] }), /"nova" is already taken/);
+  assert.match(teamRegistrationError({ ...base, teamName: 'Comet', names: ['Jay'] }), /need 3 to 4 members including you \(you entered 1\)/);
+  assert.match(teamRegistrationError({ ...base, teamName: 'Comet', names: ['a', 'b', 'c', 'd', 'e'] }), /at most 4 members/);
+  assert.match(teamRegistrationError({ ...base, teamName: 'Comet', names: ['Jay', 'jay', 'K'] }), /listed twice/);
+});

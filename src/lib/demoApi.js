@@ -2,7 +2,7 @@
 // touches Supabase. Personas replace sign-in, so there is NO real authorization here — the
 // rules below mirror the database so rehearsals behave like the real event, nothing more.
 import { ROUNDS, EVENT_DEFAULTS, SUBMISSION_FIELDS } from '../data.js';
-import { missingDeliverables, platformChoiceError, scoreError, isRoundAccepting, isRoundClosed, teamSizeIssues, teamsWithoutRepresentative, normalizeNames, memberNamesError, roundFor } from './rules.js';
+import { missingDeliverables, platformChoiceError, scoreError, isRoundAccepting, isRoundClosed, teamSizeIssues, teamsWithoutRepresentative, normalizeNames, memberNamesError, teamRegistrationError, roundFor } from './rules.js';
 
 const KEY = 'pw-demo-v3'; // v3: one account per team
 const now = () => new Date().toISOString();
@@ -269,6 +269,34 @@ export function createDemoApi(storage = globalThis.localStorage) {
       db.teams = db.teams.filter(t => t.id !== id);
       db.memberships = db.memberships.filter(m => m.team_id !== id);
       db.selections = db.selections.filter(s => s.team_id !== id);
+      save();
+    },
+    async registerTeam(teamName, memberNames) {
+      need(me(), 'Sign in first.');
+      need(role() === 'student', 'Organizer and judge accounts do not register a team.');
+      need(!teamOf(me().id), 'Your account already represents a team.');
+      need(!db.settings.teams_locked, 'Team registration is closed (teams are finalized). Contact the event host.');
+      const names = normalizeNames(memberNames);
+      const error = teamRegistrationError({ teamName, names, min: db.settings.team_min_size, max: db.settings.team_max_size, takenNames: db.teams.map(t => t.name) });
+      need(!error, error);
+      const team = { id: ++db.seq, name: teamName.trim(), member_names: names, created_at: now() };
+      db.teams.push(team);
+      db.memberships.push({ team_id: team.id, user_id: me().id, created_at: now() });
+      audit('teams', 'INSERT', null, team);
+      save();
+      return team.id;
+    },
+    async updateMyTeam(teamName, memberNames) {
+      const tid = teamOf(me()?.id);
+      need(tid, 'Your account is not linked to a team.');
+      need(!db.settings.teams_locked, 'Team registration is closed (teams are finalized). Contact the event host.');
+      const names = normalizeNames(memberNames);
+      const error = teamRegistrationError({ teamName, names, min: db.settings.team_min_size, max: db.settings.team_max_size,
+        takenNames: db.teams.filter(t => t.id !== tid).map(t => t.name) });
+      need(!error, error);
+      const t = db.teams.find(x => x.id === tid);
+      audit('teams', 'UPDATE', { ...t }, { ...t, name: teamName.trim(), member_names: names });
+      Object.assign(t, { name: teamName.trim(), member_names: names });
       save();
     },
     /** Link the team's single representative account. */

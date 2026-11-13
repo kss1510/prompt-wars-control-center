@@ -10,8 +10,9 @@ only gives friendly feedback.
 ## Features
 
 - Email/password accounts (Supabase Auth). Roles `student`, `judge`, `host`; signup always creates `student`.
-- **One account per team**: only the team's representative signs up and submits; the host lists every member
-  by name. Teams of **3–4** members (configurable), roster CSV import/export, host-controlled **team freeze**.
+- **One account per team, self-registered**: the representative signs up with the team name and every member's
+  name (3–4 people, configurable); teammates don't need accounts. The representative submits for the team and can
+  fix team details until the host finalizes teams. Hosts can still create, edit, import (CSV) and delete teams.
 - **Different AI platform every round** per team, enforced by a database unique constraint (see policy below).
 - Round-specific deliverables, deadlines on the database clock, one active submission per team per round.
 - Criterion-level judging validated against each rubric in the database; database-computed leaderboard
@@ -136,18 +137,22 @@ other teams' work), so the Supabase advisor will keep listing them; they are onl
 - Tie-break (confirmed 18 Oct 2026): higher Round 4 score, then Round 3, 2, 1. The leaderboard applies it
   automatically and shows "Ahead on tie-break (Round N)". Teams equal in every round share the rank.
 
-## Host account setup
+## Accounts and roles
 
-1. Register in the app.
-2. Supabase **Authentication → Users**: copy your user UUID.
-3. **SQL Editor** — promote only that account:
+- **Team representatives** choose *Register a team* at sign-up: name, email, password, team name and the other
+  members' names. The team is created immediately (database function `register_team`), with checks for team size,
+  unique team name and one team per account. Registration closes when the host clicks **Finalize teams**.
+- **Organizers and judges** choose *Organizer / judge* at sign-up (no team). Roles are never chosen at sign-up:
+  an existing host promotes them under **Event settings → People and roles** (`judge` scores; `host` manages
+  everything and can also score). Hosts cannot change their own role; give `host` only to trusted people,
+  because any host can change other people's roles.
+- The first host is set once in the SQL Editor:
 
-   ```sql
-   update public.profiles set role = 'host' where id = 'YOUR-AUTH-USER-UUID' returning id, email, role;
-   ```
+  ```sql
+  update public.profiles set role = 'host' where id = 'YOUR-AUTH-USER-UUID' returning id, email, role;
+  ```
 
-4. Sign out and back in. Further judges/hosts can then be promoted from **Event settings → People and roles**
-   (`host_set_role`; hosts cannot change their own role). There is no self-service role escalation.
+  The person signs out and back in to see the new menu.
 
 ## Tests
 

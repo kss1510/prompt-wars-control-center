@@ -4,7 +4,7 @@ import { supabase, configured, demoMode } from './lib/supabase';
 import { createSupabaseApi } from './lib/api';
 import { createDemoApi } from './lib/demoApi';
 import { MAX_TOTAL, EVENT_DEFAULTS } from './data';
-import { buildLeaderboard, roundFor } from './lib/rules';
+import { buildLeaderboard, roundFor, normalizeNames, teamRegistrationError } from './lib/rules';
 import { DemoBanner } from './components/ui';
 import { SubmissionModal, ReviewModal, TeamModal, ImportModal } from './components/modals';
 import { Overview } from './pages/Overview';
@@ -84,7 +84,7 @@ export default function App() {
     const myTeamId=data.memberships.find(m=>m.user_id===profile?.id)?.team_id??null;
     const scoresFor=id=>data.scores.filter(s=>s.submission_id===id).sort((a,b)=>a.criterion_index-b.criterion_index);
     return {
-      d:data, api, profile, isHost, isStaff, myTeamId, saving, act, setModal, setPage, demo:api?.mode==='demo',
+      d:data, api, profile, isHost, isStaff, myTeamId, saving, act, setModal, setPage, demo:api?.mode==='demo', userMeta:session?.user?.user_metadata||{},
       myTeam:data.teams.find(t=>t.id===myTeamId),
       teamName:id=>data.teams.find(t=>t.id===id)?.name||`Team ${id}`,
       platformName:id=>data.platforms.find(p=>p.id===id)?.name||'—',
@@ -95,7 +95,7 @@ export default function App() {
       isFullyScored:s=>scoresFor(s.id).length===roundFor(s.round_id)?.criteria.length,
       board:buildLeaderboard(data.teams,data.roundScores)
     };
-  },[d,saving,act]);
+  },[d,saving,act,session]);
 
   async function signOut(){await api.auth.signOut();setError('');}
   function resetDemo(){if(window.confirm('Reset all demo data in this browser?')){api.reset();api.auth.signOut();}}
@@ -142,22 +142,51 @@ function SetupScreen(){return <div className="center-screen"><div className="aut
 
 function AuthScreen({api}){
   const [mode,setMode]=useState('signin');
+  const [kind,setKind]=useState('team');
   const [email,setEmail]=useState('');
   const [password,setPassword]=useState('');
   const [fullName,setFullName]=useState('');
+  const [teamName,setTeamName]=useState('');
+  const [othersText,setOthersText]=useState('');
   const [saving,setSaving]=useState(false);
   const [error,setError]=useState('');
   const [notice,setNotice]=useState('');
+  const {team_min_size:min,team_max_size:max}=EVENT_DEFAULTS;
+  const others=normalizeNames(othersText);
+  const names=[fullName.trim(),...others].filter(Boolean);
   async function submit(e){
-    e.preventDefault();setSaving(true);setError('');setNotice('');
+    e.preventDefault();setError('');setNotice('');
+    if(mode==='signup'&&kind==='team'){
+      const problem=teamRegistrationError({teamName,names,min,max});
+      if(problem){setError(problem);return;}
+    }
+    setSaving(true);
     try {
       if(mode==='signup'){
-        const data=await api.auth.signUp(email.trim(),password,fullName.trim());
-        setNotice(data?.session?'Account created. Ask the host to link it to your team as its representative.':'Check your email to confirm your account, then sign in.');
+        const details=kind==='team'?{team_name:teamName.trim(),other_members:others}:{account_type:'organizer'};
+        const data=await api.auth.signUp(email.trim(),password,fullName.trim(),details);
+        // With a session the app opens straight away and registers the team on the dashboard.
+        if(!data?.session) setNotice(kind==='team'?'Check your email to confirm your account, then sign in — your team is registered when you first sign in.':'Check your email to confirm your account, then sign in.');
       } else await api.auth.signIn(email.trim(),password);
     } catch(err){setError(err.message);} finally{setSaving(false);}
   }
-  return <div className="center-screen auth-bg"><div className="auth-card"><span className="logo large">PW</span><p className="eyebrow">ACM GITAM AI/ML DOMAIN · EVENT WORKSPACE</p><h1>{mode==='signin'?'Welcome back':'Join Prompt Wars'}</h1><p className="muted">{mode==='signin'?'Sign in to access your team’s event workspace.':'Only your team’s representative needs an account — they submit for the whole team. The host links it to your team.'}</p>{error&&<div className="alert error">{error}</div>}{notice&&<div className="alert success">{notice}</div>}<form onSubmit={submit}>{mode==='signup'&&<label className="field"><span>Full name</span><input required value={fullName} onChange={e=>setFullName(e.target.value)} autoComplete="name" maxLength="100"/></label>}<label className="field"><span>Email</span><input type="email" required autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)}/></label><label className="field"><span>Password</span><input type="password" required minLength="8" autoComplete={mode==='signin'?'current-password':'new-password'} value={password} onChange={e=>setPassword(e.target.value)}/></label><button disabled={saving} className="button primary full">{saving?'Please wait…':mode==='signin'?'Sign in':'Create account'}</button></form><p className="auth-switch">{mode==='signin'?'New to Prompt Wars?':'Already registered?'} <button onClick={()=>setMode(mode==='signin'?'signup':'signin')}>{mode==='signin'?'Create account':'Sign in'}</button></p><p className="security-note"><ShieldCheck size={14}/> Roles are assigned by the event host, not selected during signup.</p></div></div>;
+  const signup=mode==='signup';
+  return <div className="center-screen auth-bg"><div className="auth-card"><span className="logo large">PW</span><p className="eyebrow">ACM GITAM AI/ML DOMAIN · EVENT WORKSPACE</p><h1>{signup?'Join Prompt Wars':'Welcome back'}</h1>
+    <p className="muted">{signup?(kind==='team'?'One person per team registers: you sign in and submit for the whole team.':'For organizers and judges. The host gives your account its access after you sign up.'):'Sign in to access your team’s event workspace.'}</p>
+    {signup&&<div className="segmented" role="radiogroup" aria-label="Account type"><button type="button" role="radio" aria-checked={kind==='team'} className={kind==='team'?'active':''} onClick={()=>{setKind('team');setError('');}}>Register a team</button><button type="button" role="radio" aria-checked={kind==='organizer'} className={kind==='organizer'?'active':''} onClick={()=>{setKind('organizer');setError('');}}>Organizer / judge</button></div>}
+    {error&&<div className="alert error" role="alert">{error}</div>}{notice&&<div className="alert success">{notice}</div>}
+    <form onSubmit={submit} noValidate={signup&&kind==='team'}>
+      {signup&&<label className="field"><span>{kind==='team'?'Your full name (team representative)':'Full name'}</span><input required value={fullName} onChange={e=>setFullName(e.target.value)} autoComplete="name" maxLength="80"/></label>}
+      <label className="field"><span>Email</span><input type="email" required autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)}/></label>
+      <label className="field"><span>Password</span><input type="password" required minLength="8" autoComplete={signup?'new-password':'current-password'} value={password} onChange={e=>setPassword(e.target.value)}/></label>
+      {signup&&kind==='team'&&<>
+        <label className="field"><span>Team name</span><input required maxLength="60" value={teamName} onChange={e=>setTeamName(e.target.value)} placeholder="e.g. Prompt Pioneers"/></label>
+        <label className="field"><span>Other team members — one name per line</span><textarea rows="3" value={othersText} onChange={e=>setOthersText(e.target.value)} placeholder={'Bilal Khan\nChitra Iyer'}/><small className={`hint ${names.length&&(names.length<min||names.length>max)?'warn-text':''}`}>Team size: {names.length} including you (needs {min}–{max}). Teammates don’t need accounts.</small></label>
+      </>}
+      <button disabled={saving} className="button primary full">{saving?'Please wait…':signup?(kind==='team'?'Create account & register team':'Create account'):'Sign in'}</button>
+    </form>
+    <p className="auth-switch">{signup?'Already registered?':'New to Prompt Wars?'} <button onClick={()=>{setMode(signup?'signin':'signup');setError('');setNotice('');}}>{signup?'Sign in':'Create account'}</button></p>
+    <p className="security-note"><ShieldCheck size={14}/> Judge and host access is given by the event host, never chosen at sign-up.</p></div></div>;
 }
 
 function DemoPersonaScreen({personas,pick,onReset,notice}){
