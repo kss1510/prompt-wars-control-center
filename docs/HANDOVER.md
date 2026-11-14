@@ -51,8 +51,9 @@ Agree a change freeze 2–3 days before the event; after it, only in-app changes
 ## Decisions still open
 
 - Date, time (90-minute window) and venue → **Event settings**.
-- Email confirmation: Supabase's built-in email sends only a few emails per hour. Turn off "Confirm email"
-  (Authentication → Sign In / Providers → Email) or set up custom SMTP before sign-ups open.
+- Email confirmation is **already off** (verified 14 Nov 2026): accounts work straight away and no emails are sent,
+  so many teams can sign up at once. Keep it off — Supabase's built-in sender only sends a few emails per hour.
+  Addresses aren't verified, so check the **Teams** page before **Finalize teams**.
 - Final round tasks and judge notes → **Rounds & scoring → Task & AI judge notes (host)** (sample tasks are loaded).
 - Round 4 surprise update: the text is saved only when **Release update now** is clicked — keep it in a note.
 - Leaderboard visible during the event, or hidden until the announcement → **Event settings → Standings visibility**.
