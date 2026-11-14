@@ -30,7 +30,12 @@ test('signup form uses the minimum expected password length', async ({ page }) =
   await expect(page.getByLabel('Password')).toHaveAttribute('minlength', '8');
 });
 
-test('sign-up registers a team: team name and member names, with size checked before sending', async ({ page }) => {
+/** Fill member rows (Member N name) starting at row `from` (1-based). */
+async function fillMembers(scope, names, from = 1) {
+  for (const [i, n] of names.entries()) await scope.getByLabel(`Member ${from + i} name`).fill(n);
+}
+
+test('sign-up registers a team of 5 with roles, checked before sending', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Create account', exact: true }).click();
   await expect(page.getByRole('radio', { name: 'Register a team' })).toHaveAttribute('aria-checked', 'true');
@@ -38,17 +43,22 @@ test('sign-up registers a team: team name and member names, with size checked be
   await page.getByLabel('Email').fill('asha@example.com');
   await page.getByLabel('Password').fill('long-enough-pw');
   await page.getByLabel('Team name').fill('Prompt Pioneers');
-  await expect(page.getByText('Team size: 1 including you (needs 3–4)')).toBeVisible();
+  await expect(page.getByLabel('Member 1 name')).toHaveValue('Asha Rao');
+  await expect(page.getByLabel('Member 1 role')).toHaveValue('Pilot');
+  await expect(page.getByText('Team size: 1 including you (needs 5–5)')).toBeVisible();
   await page.getByRole('button', { name: 'Create account & register team' }).click();
-  await expect(page.getByRole('alert')).toContainText('Teams need 3 to 4 members including you (you entered 1)');
-  await page.getByLabel('Other team members — one name per line').fill('Bilal\nChitra\nDev\nEsha');
-  await page.getByRole('button', { name: 'Create account & register team' }).click();
-  await expect(page.getByRole('alert')).toContainText('at most 4 members');
-  await page.getByLabel('Other team members — one name per line').fill('Bilal\nbilal');
+  await expect(page.getByRole('alert')).toContainText('Teams need 5 to 5 members including you (you entered 1)');
+  await fillMembers(page, ['Bilal', 'bilal', 'Dev', 'Esha'], 2);
   await page.getByRole('button', { name: 'Create account & register team' }).click();
   await expect(page.getByRole('alert')).toContainText('listed twice');
-  await page.getByLabel('Other team members — one name per line').fill('Bilal\nChitra');
-  await expect(page.getByText('Team size: 3 including you (needs 3–4)')).toBeVisible();
+  await page.getByLabel('Member 3 name').fill('Chitra');
+  await expect(page.getByText('Team size: 5 including you (needs 5–5)')).toBeVisible();
+  await page.getByLabel('Member 2 role').selectOption('Pilot');
+  await page.getByRole('button', { name: 'Create account & register team' }).click();
+  await expect(page.getByRole('alert')).toContainText('one Pilot');
+  await page.getByLabel('Member 2 role').selectOption('');
+  await page.getByRole('button', { name: 'Create account & register team' }).click();
+  await expect(page.getByRole('alert')).toContainText('Choose a role for every team member');
 });
 
 test('organizers sign up without a team; roles are never chosen at sign-up', async ({ page }) => {

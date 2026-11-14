@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
+import { RosterEditor, rosterRows, rosterArrays } from './roster.jsx';
 import { ROUNDS } from '../data';
-import { missingDeliverables, platformOptions, scoreError, isRoundAccepting, isRoundClosed, roundFor, parseRosterCsv, normalizeNames, memberNamesError } from '../lib/rules';
+import { missingDeliverables, platformOptions, scoreError, isRoundAccepting, isRoundClosed, roundFor, parseRosterCsv, memberNamesError, teamRolesError } from '../lib/rules';
 import { autoChecks } from '../lib/autoChecks';
 import { Field, Modal, RoundState, StatusBadge, fmtDate } from './ui';
 import { ArtifactWorkbench } from './ArtifactWorkbench';
@@ -139,15 +140,15 @@ export function TeamModal({ctx,close}){
   const {d,api,act,saving}=ctx;
   const [name,setName]=useState('');
   const [rep,setRep]=useState('');
-  const [namesText,setNamesText]=useState('');
+  const [rows,setRows]=useState(()=>rosterRows([],[],d.settings.team_max_size,{suggest:false}));
   const free=d.profiles.filter(p=>p.role==='student'&&!d.memberships.some(m=>m.user_id===p.id));
-  const names=normalizeNames(namesText);
-  const problem=memberNamesError(names,d.settings.team_max_size);
-  async function save(e){e.preventDefault();if(problem)return;if(await act(()=>api.createTeam(name,rep||null,names),'Team created.'))close();}
+  const {names,roles}=rosterArrays(rows);
+  const problem=memberNamesError(names,d.settings.team_max_size)||teamRolesError(names,roles,{required:false});
+  async function save(e){e.preventDefault();if(problem)return;if(await act(()=>api.createTeam(name,rep||null,names,roles.some(Boolean)?roles:[]),'Team created.'))close();}
   return <Modal title="Create team" close={close}><form onSubmit={save}>
     <Field label="Team name"><input required maxLength="60" value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Prompt Pioneers"/></Field>
     <Field label="Representative account (signs in and submits)" hint="Only this person needs to sign up. You can link it later, but it is required before finalizing teams."><select value={rep} onChange={e=>setRep(e.target.value)}><option value="">Link later…</option>{free.map(p=><option key={p.id} value={p.id}>{p.full_name||p.email}{p.full_name?` — ${p.email}`:''}</option>)}</select></Field>
-    <Field label={`Team members — one name per line, including the representative (${names.length}/${d.settings.team_max_size})`}><textarea rows="5" value={namesText} onChange={e=>setNamesText(e.target.value)} placeholder={'Asha Rao\nBilal Khan\nChitra Iyer'}/></Field>
+    <RosterEditor rows={rows} onChange={setRows} firstLabel="Representative" optionalRoles hint={`${names.length}/${d.settings.team_max_size} members, including the representative. Roles are optional here.`}/>
     {problem&&<div className="alert error" role="alert">{problem}</div>}
     {!problem&&names.length>0&&names.length<d.settings.team_min_size&&<p className="hint warn-text">Teams need {d.settings.team_min_size}–{d.settings.team_max_size} members before finalizing.</p>}
     <div className="modal-actions"><button type="button" className="button" onClick={close}>Cancel</button><button disabled={saving||Boolean(problem)} className="button primary">{saving?'Creating…':'Create team'}</button></div>

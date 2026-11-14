@@ -56,7 +56,7 @@ export function createSupabaseApi(supabase) {
     async loadAll(user) {
       const results = await Promise.all([
         supabase.from('profiles').select('id,full_name,email,role').eq('id', user.id).single(),
-        supabase.from('teams').select('id,name,member_names,created_at').order('name'),
+        supabase.from('teams').select('id,name,member_names,member_roles,created_at').order('name'),
         supabase.from('team_members').select('team_id,user_id,created_at').order('created_at'),
         supabase.from('submissions').select('*').order('created_at', { ascending: false }),
         supabase.from('scores').select('id,submission_id,criterion_index,points,feedback,scored_by,source,updated_at'),
@@ -105,15 +105,15 @@ export function createSupabaseApi(supabase) {
       run(supabase.rpc('save_scores', { p_submission: submissionId, p_points: points.map(Number), p_feedback: feedback || null })),
 
     /** One account per team: `repId` is the representative; everyone is listed in `memberNames`. */
-    async createTeam(name, repId = null, memberNames = []) {
-      const team = await run(supabase.from('teams').insert({ name: name.trim(), member_names: memberNames }).select('id').single());
+    async createTeam(name, repId = null, memberNames = [], memberRoles = []) {
+      const team = await run(supabase.from('teams').insert({ name: name.trim(), member_names: memberNames, member_roles: memberRoles }).select('id').single());
       if (repId) await run(supabase.from('team_members').insert({ team_id: team.id, user_id: repId }));
       return team;
     },
-    setMemberNames: (id, names) => run(supabase.from('teams').update({ member_names: names }).eq('id', id)),
+    setMemberNames: (id, names, roles = []) => run(supabase.from('teams').update({ member_names: names, member_roles: roles }).eq('id', id)),
     /** Representative self-service (enforced by the database until teams are finalized). */
-    registerTeam: (teamName, names) => run(supabase.rpc('register_team', { p_team_name: teamName, p_member_names: names })),
-    updateMyTeam: (teamName, names) => run(supabase.rpc('update_my_team', { p_team_name: teamName, p_member_names: names })),
+    registerTeam: (teamName, names, roles) => run(supabase.rpc('register_team', { p_team_name: teamName, p_member_names: names, p_member_roles: roles })),
+    updateMyTeam: (teamName, names, roles) => run(supabase.rpc('update_my_team', { p_team_name: teamName, p_member_names: names, p_member_roles: roles })),
     renameTeam: (id, name) => run(supabase.from('teams').update({ name: name.trim() }).eq('id', id)),
     deleteTeam: id => run(supabase.from('teams').delete().eq('id', id)),
     addMember: (teamId, userId) => run(supabase.from('team_members').insert({ team_id: teamId, user_id: userId })),

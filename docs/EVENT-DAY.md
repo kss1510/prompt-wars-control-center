@@ -9,7 +9,8 @@ Date, time and venue: to be confirmed.
    Check each opens on the classroom Wi-Fi.
 3. ✅ Tie-break confirmed: Round 4 → 3 → 2 → 1 (applied automatically on the leaderboard).
 4. **One person per team** (the representative) signs up at https://prompt-wars-gitam.vercel.app with *Register a
-   team*: team name and the other members' names (3–4 people). Organizers and judges choose *Organizer / judge*;
+   team*: team name and all 5 members' names with their roles (Pilot, two Prompt Crafters, Debugger/Verifier,
+   Strategist/Scribe). Organizers and judges choose *Organizer / judge*;
    promote them under **Event settings → People and roles**. Check the **Teams** page, fix anything, then
    **Finalize teams** (this also closes registration).
 5. AI judge set up: Vercel has `GEMINI_API_KEY` and `SUPABASE_SERVICE_ROLE_KEY`; **Event settings → Test the AI

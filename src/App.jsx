@@ -1,4 +1,5 @@
 import React from 'react';
+import { RosterEditor, rosterRows, rosterArrays } from './components/roster.jsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase, configured, demoMode } from './lib/supabase';
 import { createSupabaseApi } from './lib/api';
@@ -196,23 +197,23 @@ function AuthScreen({api}){
   const [password,setPassword]=useState('');
   const [fullName,setFullName]=useState('');
   const [teamName,setTeamName]=useState('');
-  const [othersText,setOthersText]=useState('');
+  const [rows,setRows]=useState(()=>rosterRows([],[],EVENT_DEFAULTS.team_max_size));
   const [saving,setSaving]=useState(false);
   const [error,setError]=useState('');
   const [notice,setNotice]=useState('');
   const {team_min_size:min,team_max_size:max}=EVENT_DEFAULTS;
-  const others=normalizeNames(othersText);
-  const names=[fullName.trim(),...others].filter(Boolean);
+  const {names,roles}=rosterArrays([{name:fullName,role:rows[0]?.role},...rows.slice(1)]);
+  const others=names.slice(fullName.trim()?1:0);
   async function submit(e){
     e.preventDefault();setError('');setNotice('');
     if(mode==='signup'&&kind==='team'){
-      const problem=teamRegistrationError({teamName,names,min,max});
+      const problem=teamRegistrationError({teamName,names,roles,min,max});
       if(problem){setError(problem);return;}
     }
     setSaving(true);
     try {
       if(mode==='signup'){
-        const details=kind==='team'?{team_name:teamName.trim(),other_members:others}:{account_type:'organizer'};
+        const details=kind==='team'?{team_name:teamName.trim(),other_members:others,member_roles:roles}:{account_type:'organizer'};
         const data=await api.auth.signUp(email.trim(),password,fullName.trim(),details);
         // With a session the app opens straight away and registers the team on the dashboard.
         if(!data?.session) setNotice(kind==='team'?'Check your email to confirm your account, then sign in — your team is registered when you first sign in.':'Check your email to confirm your account, then sign in.');
@@ -230,7 +231,7 @@ function AuthScreen({api}){
       <label className="field"><span>Password</span><input type="password" required minLength="8" autoComplete={signup?'new-password':'current-password'} value={password} onChange={e=>setPassword(e.target.value)}/></label>
       {signup&&kind==='team'&&<>
         <label className="field"><span>Team name</span><input required maxLength="60" value={teamName} onChange={e=>setTeamName(e.target.value)} placeholder="e.g. Prompt Pioneers"/></label>
-        <label className="field"><span>Other team members — one name per line</span><textarea rows="3" value={othersText} onChange={e=>setOthersText(e.target.value)} placeholder={'Bilal Khan\nChitra Iyer'}/><small className={`hint ${names.length&&(names.length<min||names.length>max)?'warn-text':''}`}>Team size: {names.length} including you (needs {min}–{max}). Teammates don’t need accounts.</small></label>
+        <RosterEditor rows={rows} onChange={setRows} firstLabel="You (team representative)" firstName={fullName} hint={`Team size: ${names.length} including you (needs ${min}–${max}). Teammates don’t need accounts.`}/>
       </>}
       <button disabled={saving} className="button primary full">{saving?'Please wait…':signup?(kind==='team'?'Create account & register team':'Create account'):'Sign in'}</button>
     </form>

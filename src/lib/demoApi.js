@@ -3,9 +3,9 @@
 // rules below mirror the database so rehearsals behave like the real event, nothing more.
 import { ROUNDS, EVENT_DEFAULTS, SUBMISSION_FIELDS, DEFAULT_ROUND_TASKS, DEFAULT_JUDGE_NOTES, DEFAULT_CHATBOT } from '../data.js';
 import { simulateJudge, simulateChatbot } from './aiJudge.js';
-import { missingDeliverables, platformChoiceError, scoreError, isRoundAccepting, isRoundClosed, teamSizeIssues, teamsWithoutRepresentative, normalizeNames, memberNamesError, teamRegistrationError, roundFor } from './rules.js';
+import { missingDeliverables, platformChoiceError, scoreError, isRoundAccepting, isRoundClosed, teamSizeIssues, teamsWithoutRepresentative, normalizeNames, memberNamesError, teamRegistrationError, teamRolesError, roundFor } from './rules.js';
 
-const KEY = 'pw-demo-v4'; // v4: in-app tasks, Round 2 chatbot, simulated AI judge
+const KEY = 'pw-demo-v5'; // v5: teams of 5 with roles (v4: in-app tasks, Round 2 chatbot, simulated AI judge)
 const now = () => new Date().toISOString();
 const persona = (id, full_name, role) => ({ id, full_name, email: `${id}@demo.local`, role });
 
@@ -20,8 +20,8 @@ function seed() {
     persona('demo-unassigned-2', 'Hari (demo, unassigned)', 'student')
   ];
   const teams = [
-    { id: 1, name: 'Demo Team Nova', member_names: ['Asha', 'Bilal', 'Chitra', 'Dev'], created_at: now() },
-    { id: 2, name: 'Demo Team Orbit', member_names: ['Esha', 'Farhan', 'Gauri'], created_at: now() }
+    { id: 1, name: 'Demo Team Nova', member_names: ['Asha', 'Bilal', 'Chitra', 'Dev', 'Ira'], member_roles: ['Pilot', 'Prompt Crafter', 'Prompt Crafter', 'Debugger/Verifier', 'Strategist/Scribe'], created_at: now() },
+    { id: 2, name: 'Demo Team Orbit', member_names: ['Esha', 'Farhan', 'Gauri', 'Hari', 'Isha'], member_roles: ['Pilot', 'Prompt Crafter', 'Prompt Crafter', 'Debugger/Verifier', 'Strategist/Scribe'], created_at: now() }
   ];
   const memberships = [
     { team_id: 1, user_id: 'demo-nova-1', created_at: now() },
@@ -238,15 +238,15 @@ export function createDemoApi(storage = globalThis.localStorage) {
       return points.reduce((n, p) => n + Number(p), 0);
     },
 
-    async createTeam(name, repId = null, memberNames = []) {
+    async createTeam(name, repId = null, memberNames = [], memberRoles = []) {
       need(isHost(), 'Only a host can manage teams.');
       need(!db.settings.teams_locked, 'Teams are finalized. Unlock teams before creating or deleting a team.');
       need(name.trim().length >= 1 && name.trim().length <= 60, 'Team names must be 1–60 characters.');
       need(!db.teams.some(t => t.name.toLowerCase() === name.trim().toLowerCase()), 'A team with that name already exists.');
       const names = normalizeNames(memberNames);
-      const problem = memberNamesError(names, db.settings.team_max_size);
+      const problem = memberNamesError(names, db.settings.team_max_size) || teamRolesError(names, memberRoles, { required: false });
       need(!problem, problem);
-      const team = { id: ++db.seq, name: name.trim(), member_names: names, created_at: now() };
+      const team = { id: ++db.seq, name: name.trim(), member_names: names, member_roles: memberRoles.some(Boolean) ? memberRoles : [], created_at: now() };
       db.teams.push(team);
       audit('teams', 'INSERT', null, team);
       save();
@@ -261,15 +261,16 @@ export function createDemoApi(storage = globalThis.localStorage) {
       t.name = name.trim();
       save();
     },
-    async setMemberNames(id, memberNames) {
+    async setMemberNames(id, memberNames, memberRoles = []) {
       need(isHost(), 'Only a host can manage teams.');
       need(!db.settings.teams_locked, 'Teams are finalized. Unlock teams before changing members.');
       const names = normalizeNames(memberNames);
-      const problem = memberNamesError(names, db.settings.team_max_size);
+      const roles = memberRoles.some(Boolean) ? memberRoles : [];
+      const problem = memberNamesError(names, db.settings.team_max_size) || teamRolesError(names, roles, { required: false });
       need(!problem, problem);
       const t = db.teams.find(x => x.id === id);
-      audit('teams', 'UPDATE', { ...t }, { ...t, member_names: names });
-      t.member_names = names;
+      audit('teams', 'UPDATE', { ...t }, { ...t, member_names: names, member_roles: roles });
+      Object.assign(t, { member_names: names, member_roles: roles });
       save();
     },
     async deleteTeam(id) {
@@ -281,32 +282,32 @@ export function createDemoApi(storage = globalThis.localStorage) {
       db.selections = db.selections.filter(s => s.team_id !== id);
       save();
     },
-    async registerTeam(teamName, memberNames) {
+    async registerTeam(teamName, memberNames, memberRoles = []) {
       need(me(), 'Sign in first.');
       need(role() === 'student', 'Organizer and judge accounts do not register a team.');
       need(!teamOf(me().id), 'Your account already represents a team.');
       need(!db.settings.teams_locked, 'Team registration is closed (teams are finalized). Contact the event host.');
       const names = normalizeNames(memberNames);
-      const error = teamRegistrationError({ teamName, names, min: db.settings.team_min_size, max: db.settings.team_max_size, takenNames: db.teams.map(t => t.name) });
+      const error = teamRegistrationError({ teamName, names, roles: memberRoles, min: db.settings.team_min_size, max: db.settings.team_max_size, takenNames: db.teams.map(t => t.name) });
       need(!error, error);
-      const team = { id: ++db.seq, name: teamName.trim(), member_names: names, created_at: now() };
+      const team = { id: ++db.seq, name: teamName.trim(), member_names: names, member_roles: [...memberRoles], created_at: now() };
       db.teams.push(team);
       db.memberships.push({ team_id: team.id, user_id: me().id, created_at: now() });
       audit('teams', 'INSERT', null, team);
       save();
       return team.id;
     },
-    async updateMyTeam(teamName, memberNames) {
+    async updateMyTeam(teamName, memberNames, memberRoles = []) {
       const tid = teamOf(me()?.id);
       need(tid, 'Your account is not linked to a team.');
       need(!db.settings.teams_locked, 'Team registration is closed (teams are finalized). Contact the event host.');
       const names = normalizeNames(memberNames);
-      const error = teamRegistrationError({ teamName, names, min: db.settings.team_min_size, max: db.settings.team_max_size,
+      const error = teamRegistrationError({ teamName, names, roles: memberRoles, min: db.settings.team_min_size, max: db.settings.team_max_size,
         takenNames: db.teams.filter(t => t.id !== tid).map(t => t.name) });
       need(!error, error);
       const t = db.teams.find(x => x.id === tid);
-      audit('teams', 'UPDATE', { ...t }, { ...t, name: teamName.trim(), member_names: names });
-      Object.assign(t, { name: teamName.trim(), member_names: names });
+      audit('teams', 'UPDATE', { ...t }, { ...t, name: teamName.trim(), member_names: names, member_roles: [...memberRoles] });
+      Object.assign(t, { name: teamName.trim(), member_names: names, member_roles: [...memberRoles] });
       save();
     },
     /** Link the team's single representative account. */
@@ -389,7 +390,7 @@ export function createDemoApi(storage = globalThis.localStorage) {
           if (!t) {
             const created = await this.createTeam(info.name, null, info.names);
             t = db.teams.find(x => x.id === created.id);
-          } else t.member_names = info.names;
+          } else Object.assign(t, { member_names: info.names, member_roles: [] }); // imported names: old roles no longer line up
           if (info.emails.length === 1 && !db.memberships.some(m => m.team_id === t.id)) {
             await this.addMember(t.id, db.profiles.find(p => p.email.toLowerCase() === info.emails[0]).id);
           }

@@ -114,14 +114,49 @@ export function memberNamesError(names, max) {
  * Self-registration check (mirrors public.validate_team_details): team name 1–60 characters, not
  * already taken, and min–max member names including the representative. Returns an error or null.
  */
-export function teamRegistrationError({ teamName, names, min, max, takenNames = [] }) {
+export function teamRegistrationError({ teamName, names, roles, min, max, takenNames = [] }) {
   const name = (teamName || '').trim();
   if (!name || name.length > 60) return 'Team name must be 1–60 characters.';
   if (takenNames.some(t => t.toLowerCase() === name.toLowerCase())) return `The team name "${name}" is already taken. Choose another.`;
   const problem = memberNamesError(names, max);
   if (problem) return problem;
   if (names.length < min || names.length > max) return `Teams need ${min} to ${max} members including you (you entered ${names.length}).`;
+  if (roles !== undefined) return teamRolesError(names, roles);
   return null;
+}
+
+/**
+ * Team roles from the approved event proposal: Pilot, two Prompt Crafters, Debugger/Verifier and
+ * Strategist/Scribe. A role may not be used more often than its slots, so a team of 5 has exactly
+ * this mix and a smaller team leaves a role open. Mirrors public.team_roles_error.
+ */
+export const TEAM_ROLES = [
+  { name: 'Pilot', slots: 1 },
+  { name: 'Prompt Crafter', slots: 2 },
+  { name: 'Debugger/Verifier', slots: 1 },
+  { name: 'Strategist/Scribe', slots: 1 }
+];
+export const DEFAULT_ROLE_ORDER = ['Pilot', 'Prompt Crafter', 'Prompt Crafter', 'Debugger/Verifier', 'Strategist/Scribe'];
+
+/** Role problems for a member list, or null. `required` (self-registration) means every member needs a
+ *  role; otherwise (host tools) roles may also be left out entirely. */
+export function teamRolesError(names, roles = [], { required = true } = {}) {
+  const list = (roles || []).map(r => String(r || '').trim());
+  if (!required && list.every(r => !r)) return null;
+  if (list.length !== names.length || list.some(r => !r)) return 'Choose a role for every team member.';
+  const unknown = list.find(r => !TEAM_ROLES.some(x => x.name === r));
+  if (unknown) return `"${unknown}" is not a team role.`;
+  for (const { name, slots } of TEAM_ROLES) {
+    const used = list.filter(r => r === name).length;
+    if (used > slots) return `A team has ${slots === 1 ? 'one' : 'two'} ${name}${slots === 1 ? '' : 's'} (this list has ${used}).`;
+  }
+  return null;
+}
+
+/** Name + role rows → parallel arrays, dropping rows with no name (a role alone is not a member). */
+export function rosterArrays(rows) {
+  const kept = rows.map(r => ({ name: String(r.name || '').trim(), role: String(r.role || '').trim() })).filter(r => r.name);
+  return { names: kept.map(r => r.name), roles: kept.map(r => r.role) };
 }
 
 /** Team-size problems against the configured limits (counting member names). */

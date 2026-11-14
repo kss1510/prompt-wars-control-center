@@ -15,6 +15,11 @@ test.beforeEach(async ({ page }) => {
 });
 test.afterEach(() => expect(pageErrors.filter(e => !expectedErrors.includes(e)), 'no uncaught browser errors').toEqual([]));
 
+/** Fill member rows (Member N name) starting at row `from` (1-based). */
+async function fillMembers(scope, names, from = 1) {
+  for (const [i, n] of names.entries()) await scope.getByLabel(`Member ${from + i} name`).fill(n);
+}
+
 async function as(page, persona) {
   if (await page.getByRole('button', { name: 'Switch persona' }).isVisible()) {
     await page.getByRole('button', { name: 'Switch persona' }).click();
@@ -58,7 +63,7 @@ test('students see participant navigation only', async ({ page }) => {
   }
   await expect(page.getByRole('heading', { name: 'Demo Team Nova' })).toBeVisible();
   // One account per team: teammates appear by name, and the account is the team's representative.
-  for (const name of ['Asha', 'Bilal', 'Chitra', 'Dev']) await expect(page.locator('.member-chips')).toContainText(name);
+  for (const name of ['Asha', 'Bilal', 'Chitra', 'Dev', 'Ira', 'Pilot']) await expect(page.locator('.member-chips')).toContainText(name);
   await expect(page.getByText('representative', { exact: false }).first()).toBeVisible();
   await as(page, 'Jay (demo, unassigned)');
   await expect(page.getByRole('region', { name: 'Register your team' })).toBeVisible();
@@ -212,40 +217,48 @@ test('Round 4 stores initial and revised plans separately', async ({ page }) => 
   await expect(view).toContainText('Block A road closed: use the east exit.');
 });
 
-test('host team management: one representative account, member names, finalize only when complete', async ({ page }) => {
+test('host team management: one representative account, member names and roles, finalize only when complete', async ({ page }) => {
   await as(page, 'Demo Host');
   await nav(page, 'Teams');
   await page.getByRole('button', { name: 'Create team' }).click();
   const dialog = page.getByRole('dialog', { name: 'Create team' });
   await dialog.getByLabel('Team name').fill('Demo Team Comet');
   await dialog.getByLabel(/Representative account/).selectOption({ label: 'Jay (demo, unassigned) — demo-unassigned@demo.local' });
-  await dialog.getByLabel(/Team members/).fill('Jay\nKiran\nLeela\nMira\nNoor');
-  await expect(dialog.getByRole('alert')).toContainText('at most 4 members');
+  await fillMembers(dialog, ['Jay', 'Kiran']);
+  await dialog.getByLabel('Member 1 role').selectOption('Pilot');
+  await dialog.getByLabel('Member 2 role').selectOption('Pilot');
+  await expect(dialog.getByRole('alert')).toContainText('one Pilot');
   await expect(dialog.getByRole('button', { name: 'Create team' })).toBeDisabled();
-  await dialog.getByLabel(/Team members/).fill('Jay');
+  await dialog.getByLabel('Member 2 role').selectOption('Prompt Crafter');
   await dialog.getByRole('button', { name: 'Create team' }).click();
   await expect(page.getByText('Team created.')).toBeVisible();
   const comet = page.getByTestId('team-Demo Team Comet');
-  await expect(comet).toContainText('1/4 MEMBERS');
+  await expect(comet).toContainText('2/5 MEMBERS');
+  await expect(comet).toContainText('Pilot');
   await expect(comet).toContainText('demo-unassigned@demo.local');
   await expect(comet.getByLabel('Link representative account')).toHaveCount(0); // only one account per team
 
   await page.getByRole('button', { name: 'Create team' }).click();
   await dialog.getByLabel('Team name').fill('Demo Team Dawn');
-  await dialog.getByLabel(/Team members/).fill('Ira\nJo\nKai');
+  await fillMembers(dialog, ['Ira', 'Jo', 'Kai', 'Lu', 'Mo']); // roles are optional for hosts
   await dialog.getByRole('button', { name: 'Create team' }).click();
   await expect(page.getByText('Team created.')).toBeVisible();
 
   await page.getByRole('button', { name: 'Finalize teams' }).click();
   const alert = page.getByRole('alert');
-  await expect(alert).toContainText('Demo Team Comet has 1 member (needs 3–4)');
+  await expect(alert).toContainText('Demo Team Comet has 2 members (needs 5–5)');
   await expect(alert).toContainText('Demo Team Dawn has no representative account');
 
   await comet.getByRole('button', { name: 'Edit members' }).click();
-  await comet.getByLabel(/Members — one name per line/).fill('Jay\nKiran\nLeela');
+  await fillMembers(comet, ['Leela', 'Mira', 'Noor'], 3);
+  await expect(comet.getByRole('alert')).toContainText('Choose a role for every team member');
+  await comet.getByLabel('Member 3 role').selectOption('Prompt Crafter');
+  await comet.getByLabel('Member 4 role').selectOption('Debugger/Verifier');
+  await comet.getByLabel('Member 5 role').selectOption('Strategist/Scribe');
   await comet.getByRole('button', { name: 'Save members' }).click();
   await expect(page.getByText('Members saved.')).toBeVisible();
-  await expect(comet).toContainText('3/4 MEMBERS');
+  await expect(comet).toContainText('5/5 MEMBERS');
+  await expect(comet).toContainText('Strategist/Scribe');
   const dawn = page.getByTestId('team-Demo Team Dawn');
   await dawn.getByLabel('Link representative account').selectOption({ label: 'Hari (demo, unassigned) — demo-unassigned-2@demo.local' });
   await expect(page.getByText('Representative linked.')).toBeVisible();
@@ -266,17 +279,18 @@ test('roster import: one line per person, email only on the representative line'
   await nav(page, 'Teams');
   await page.getByRole('button', { name: 'Import roster' }).click();
   const dialog = page.getByRole('dialog', { name: 'Import roster' });
-  await dialog.getByLabel('Roster CSV').fill('team,name,email\nDemo Team Comet,Jay,nobody@demo.local\nDemo Team Comet,Kiran,\nDemo Team Comet,Leela,');
+  const rest = '\nDemo Team Comet,Kiran,\nDemo Team Comet,Leela,\nDemo Team Comet,Mira,\nDemo Team Comet,Noor,';
+  await dialog.getByLabel('Roster CSV').fill('team,name,email\nDemo Team Comet,Jay,nobody@demo.local' + rest);
   await dialog.getByRole('button', { name: 'Check roster' }).click();
   await expect(dialog).toContainText('No registered account with this email');
-  await expect(dialog.getByRole('button', { name: /Import 3 rows/ })).toBeDisabled();
-  await dialog.getByLabel('Roster CSV').fill('team,name,email\nDemo Team Comet,Jay,demo-unassigned@demo.local\nDemo Team Comet,Kiran,\nDemo Team Comet,Leela,');
+  await expect(dialog.getByRole('button', { name: /Import 5 rows/ })).toBeDisabled();
+  await dialog.getByLabel('Roster CSV').fill('team,name,email\nDemo Team Comet,Jay,demo-unassigned@demo.local' + rest);
   await dialog.getByRole('button', { name: 'Check roster' }).click();
   await expect(dialog).toContainText('Representative (signs in and submits).');
-  await dialog.getByRole('button', { name: /Import 3 rows/ }).click();
+  await dialog.getByRole('button', { name: /Import 5 rows/ }).click();
   await expect(page.getByText('Roster imported.')).toBeVisible();
   const comet = page.getByTestId('team-Demo Team Comet');
-  await expect(comet).toContainText('3/4 MEMBERS');
+  await expect(comet).toContainText('5/5 MEMBERS');
   await expect(comet).toContainText('demo-unassigned@demo.local');
 });
 
@@ -392,27 +406,31 @@ test('a representative registers their own team, edits it, and registration clos
   const form = page.getByRole('region', { name: 'Register your team' });
   await expect(form).toBeVisible();
   await form.getByLabel('Team name').fill('Demo Team Nova');
-  await form.getByLabel('Your name (as it should appear)').fill('Jay');
-  await form.getByLabel('Other team members — one name per line').fill('Kiran\nLeela');
+  await fillMembers(form, ['Jay', 'Kiran', 'Leela', 'Mira', 'Noor']);
+  await expect(form.getByLabel('Member 5 role')).toHaveValue('Strategist/Scribe'); // the proposal's roles are suggested
   await form.getByRole('button', { name: 'Register team' }).click();
   await expect(form.getByRole('alert')).toContainText('"Demo Team Nova" is already taken');
   await form.getByLabel('Team name').fill('Demo Team Comet');
   await form.getByRole('button', { name: 'Register team' }).click();
   await expect(page.getByText('Team registered. You are its representative.')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Demo Team Comet' })).toBeVisible();
-  for (const n of ['Jay', 'Kiran', 'Leela']) await expect(page.locator('.member-chips')).toContainText(n);
+  for (const n of ['Jay', 'Kiran', 'Leela', 'Mira', 'Noor', 'Pilot', 'Prompt Crafter']) await expect(page.locator('.member-chips')).toContainText(n);
 
+  // Swap two roles: Jay becomes Strategist/Scribe, Noor becomes Pilot.
   await page.getByRole('button', { name: 'Edit team details' }).click();
-  await page.getByLabel(/Members, including you/).fill('Jay\nKiran\nLeela\nMira');
+  await page.getByLabel('Member 1 role').selectOption('Strategist/Scribe');
+  await page.getByRole('button', { name: 'Save team details' }).click();
+  await expect(page.getByRole('alert')).toContainText('one Strategist/Scribe');
+  await page.getByLabel('Member 5 role').selectOption('Pilot');
   await page.getByRole('button', { name: 'Save team details' }).click();
   await expect(page.getByText('Team details saved.')).toBeVisible();
-  await expect(page.locator('.member-chips')).toContainText('Mira');
+  await expect(page.locator('.chip', { hasText: 'Noor' })).toContainText('Pilot');
 
   // Host sees the self-registered team with its representative, then finalizes.
   await as(page, 'Demo Host');
   await nav(page, 'Teams');
   const comet = page.getByTestId('team-Demo Team Comet');
-  await expect(comet).toContainText('4/4 MEMBERS');
+  await expect(comet).toContainText('5/5 MEMBERS');
   await expect(comet).toContainText('demo-unassigned@demo.local');
   await page.getByRole('button', { name: 'Finalize teams' }).click();
   await expect(page.getByText('Teams finalized.')).toBeVisible();

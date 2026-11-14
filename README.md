@@ -11,7 +11,8 @@ only gives friendly feedback.
 
 - Email/password accounts (Supabase Auth). Roles `student`, `judge`, `host`; signup always creates `student`.
 - **One account per team, self-registered**: the representative signs up with the team name and every member's
-  name (3–4 people, configurable); teammates don't need accounts. The representative submits for the team and can
+  name and role — teams of 5 (configurable) as in the approved proposal: Pilot, two Prompt Crafters,
+  Debugger/Verifier and Strategist/Scribe (no role used more than its slots); teammates don't need accounts. The representative submits for the team and can
   fix team details until the host finalizes teams. Hosts can still create, edit, import (CSV) and delete teams.
 - **Different AI platform every round** per team, enforced by a database unique constraint (see policy below).
 - Round-specific deliverables, deadlines on the database clock, one active submission per team per round.
@@ -105,7 +106,7 @@ migrated database.
 
 | Object | Purpose |
 |---|---|
-| `event_settings` | Event window, team size limits (3–4 since `20261018120000_team_size_3_4.sql`), `teams_locked`, `leaderboard_visible`, `tie_break_rule` |
+| `event_settings` | Event window, team size limits (5–5 since `20261115090000_team_roles.sql`; `teams.member_roles` holds each member's role), `teams_locked`, `leaderboard_visible`, `tie_break_rule` |
 | `rounds` | Rubric maxima (read by the score trigger), duration, `upcoming/open/closed`, `opens_at`/`closes_at` |
 | `ai_platforms` | Approved platform list (hosts add/deactivate) |
 | `team_round_platforms` | One declared platform per team-round; unique per team |
@@ -178,8 +179,8 @@ server-only `ai_record_scores` / `ai_mark_submission`) and `20261114150000_round
 ## Accounts and roles
 
 - **Team representatives** choose *Register a team* at sign-up: name, email, password, team name and the other
-  members' names. The team is created immediately (database function `register_team`), with checks for team size,
-  unique team name and one team per account. Registration closes when the host clicks **Finalize teams**.
+  members' names, each with a role. The team is created immediately (database function `register_team`), with
+  checks for team size, roles, unique team name and one team per account. Registration closes when the host clicks **Finalize teams**.
 - **Organizers and judges** choose *Organizer / judge* at sign-up (no team). Roles are never chosen at sign-up:
   an existing host promotes them under **Event settings → People and roles** (`judge` scores; `host` manages
   everything and can also score). Hosts cannot change their own role; give `host` only to trusted people,

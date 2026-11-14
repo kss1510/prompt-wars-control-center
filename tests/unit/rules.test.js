@@ -156,7 +156,7 @@ test('readiness checks flag missing fourth platform, unlocked teams and teams wi
   const repCheck = ready.find(c => c.label === 'Every team has its representative account');
   assert.equal(repCheck.ok, false);
   assert.match(repCheck.detail, /Missing: Orbit/);
-  assert.ok(ready.find(c => c.label.startsWith('Every team has 3–4 members')).ok);
+  assert.ok(!ready.find(c => c.label.startsWith('Every team has 5–5 members')).ok, 'teams of 3–4 no longer meet the 5-member rule');
   assert.ok(!failed.includes('Tie-break rule confirmed'), 'the confirmed tie-break is part of the defaults');
   assert.ok(checks.find(c => c.label.startsWith('Round durations')).ok);
 });
@@ -183,4 +183,20 @@ test('self-registration validation mirrors the database: name, uniqueness and 3�
   assert.match(teamRegistrationError({ ...base, teamName: 'Comet', names: ['Jay'] }), /need 3 to 4 members including you \(you entered 1\)/);
   assert.match(teamRegistrationError({ ...base, teamName: 'Comet', names: ['a', 'b', 'c', 'd', 'e'] }), /at most 4 members/);
   assert.match(teamRegistrationError({ ...base, teamName: 'Comet', names: ['Jay', 'jay', 'K'] }), /listed twice/);
+});
+
+test('team roles follow the approved proposal: Pilot, two Prompt Crafters, Debugger/Verifier, Strategist/Scribe', async () => {
+  const { teamRolesError, rosterArrays, DEFAULT_ROLE_ORDER, teamRegistrationError } = await import('../../src/lib/rules.js');
+  const five = ['A', 'B', 'C', 'D', 'E'];
+  assert.equal(EVENT_DEFAULTS.team_min_size, 5);
+  assert.equal(EVENT_DEFAULTS.team_max_size, 5);
+  assert.equal(teamRolesError(five, DEFAULT_ROLE_ORDER), null);
+  assert.match(teamRolesError(five, DEFAULT_ROLE_ORDER.slice(0, 4)), /Choose a role for every team member/);
+  assert.match(teamRolesError(five, ['Pilot', 'Pilot', 'Prompt Crafter', 'Debugger/Verifier', 'Strategist/Scribe']), /one Pilot/);
+  assert.match(teamRolesError(five, ['Pilot', 'Prompt Crafter', 'Prompt Crafter', 'Prompt Crafter', 'Strategist/Scribe']), /two Prompt Crafters/);
+  assert.equal(teamRolesError(five, [], { required: false }), null, 'host tools may leave roles out');
+  assert.deepEqual(rosterArrays([{ name: ' Asha ', role: 'Pilot' }, { name: '', role: 'Prompt Crafter' }, { name: 'Bilal', role: 'Prompt Crafter' }]),
+    { names: ['Asha', 'Bilal'], roles: ['Pilot', 'Prompt Crafter'] });
+  assert.match(teamRegistrationError({ teamName: 'Comet', names: five, roles: [], min: 5, max: 5 }), /Choose a role/);
+  assert.equal(teamRegistrationError({ teamName: 'Comet', names: five, roles: DEFAULT_ROLE_ORDER, min: 5, max: 5 }), null);
 });

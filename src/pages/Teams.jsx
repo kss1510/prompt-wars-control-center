@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { teamSizeIssues, teamsWithoutRepresentative, normalizeNames, memberNamesError, toCsv } from '../lib/rules';
+import { MemberChips, RosterEditor, rosterRows, rosterArrays } from '../components/roster.jsx';
+import { teamSizeIssues, teamsWithoutRepresentative, memberNamesError, teamRolesError, toCsv } from '../lib/rules';
 import { PageHead, Stat, Empty, Field, downloadFile } from '../components/ui';
 import { Download, Lock, Pencil, Trash2, Unlock, Upload, UserCheck, Users, X } from 'lucide-react';
 
@@ -12,11 +13,12 @@ export function TeamsPage({ctx}){
   const issues=[...teamSizeIssues(d.teams,min,max).map(i=>i.message),...teamsWithoutRepresentative(d.teams,d.memberships).map(t=>`${t.name} has no representative account.`)];
   const people=d.teams.reduce((n,t)=>n+(t.member_names||[]).length,0);
   function exportRoster(){
-    downloadFile('prompt-wars-roster.csv',toCsv([['team','name','email'],...d.teams.flatMap(t=>{
+    downloadFile('prompt-wars-roster.csv',toCsv([['team','name','email','role'],...d.teams.flatMap(t=>{
       const rep=d.profiles.find(p=>p.id===d.memberships.find(m=>m.team_id===t.id)?.user_id);
       const names=t.member_names||[];
+      const roles=t.member_roles||[];
       // The representative's email goes on the first line, matching the import format.
-      return names.length?names.map((n,i)=>[t.name,n,i===0?rep?.email||'':'']):[[t.name,'',rep?.email||'']];
+      return names.length?names.map((n,i)=>[t.name,n,i===0?rep?.email||'':'',roles[i]||'']):[[t.name,'',rep?.email||'','']];
     })]));
   }
   return <><PageHead eyebrow="WORKSPACE / TEAMS" title="Teams" desc={`Teams of ${min}–${max} members. Only one person per team signs up — the representative, who submits for the team.`} actions={<>
@@ -36,12 +38,13 @@ function TeamCard({ctx,team,free}){
   const [renaming,setRenaming]=useState(false);
   const [name,setName]=useState(team.name);
   const [editing,setEditing]=useState(false);
-  const [namesText,setNamesText]=useState((team.member_names||[]).join('\n'));
   const names=team.member_names||[];
+  const roles=team.member_roles||[];
+  const [rows,setRows]=useState(()=>rosterRows(names,roles,max,{suggest:false}));
   const membership=d.memberships.find(m=>m.team_id===team.id);
   const rep=membership&&d.profiles.find(p=>p.id===membership.user_id);
-  const draft=normalizeNames(namesText);
-  const problem=memberNamesError(draft,max);
+  const draft=rosterArrays(rows);
+  const problem=memberNamesError(draft.names,max)||teamRolesError(draft.names,draft.roles,{required:false});
   const ok=names.length>=min&&names.length<=max&&Boolean(rep);
   return <article className="team-card" data-testid={`team-${team.name}`}>
     <div className="team-card-head"><span className={`tag ${ok?'':'warn'}`}>{names.length}/{max} MEMBERS</span>
@@ -58,11 +61,11 @@ function TeamCard({ctx,team,free}){
       :<p className="warn-text">No account linked.</p>}
 
     <div className="rubric-label">MEMBERS</div>
-    {editing?<form onSubmit={async e=>{e.preventDefault();if(problem)return;if(await act(()=>api.setMemberNames(team.id,draft),'Members saved.'))setEditing(false);}}>
-        <Field label={`Members — one name per line (${draft.length}/${max})`}><textarea rows="5" value={namesText} onChange={e=>setNamesText(e.target.value)}/></Field>
+    {editing?<form onSubmit={async e=>{e.preventDefault();if(problem)return;if(await act(()=>api.setMemberNames(team.id,draft.names,draft.roles.some(Boolean)?draft.roles:[]),'Members saved.'))setEditing(false);}}>
+        <RosterEditor rows={rows} onChange={setRows} firstLabel="Representative" optionalRoles hint={`${draft.names.length}/${max} members. Roles are optional here; leave them all empty or give everyone one.`}/>
         {problem&&<p className="warn-text" role="alert">{problem}</p>}
-        <div className="inline-form"><button className="button small primary" disabled={saving||Boolean(problem)}>Save members</button><button type="button" className="button small" onClick={()=>{setEditing(false);setNamesText(names.join('\n'));}}>Cancel</button></div></form>
-      :<><div className="member-chips">{names.map(n=><span key={n} className="chip">{n}</span>)}{!names.length&&<span className="muted">No members listed yet.</span>}</div>
-        {!locked&&<button className="button small" onClick={()=>{setNamesText(names.join('\n'));setEditing(true);}}>Edit members</button>}</>}
+        <div className="inline-form"><button className="button small primary" disabled={saving||Boolean(problem)}>Save members</button><button type="button" className="button small" onClick={()=>{setEditing(false);setRows(rosterRows(names,roles,max,{suggest:false}));}}>Cancel</button></div></form>
+      :<><MemberChips names={names} roles={roles} empty="No members listed yet."/>
+        {!locked&&<button className="button small" onClick={()=>{setRows(rosterRows(names,roles,max,{suggest:false}));setEditing(true);}}>Edit members</button>}</>}
   </article>;
 }

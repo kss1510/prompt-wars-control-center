@@ -92,11 +92,10 @@ test('Prompt Wars — full event walkthrough (AI-judged)', async ({ page }) => {
 
   // ---------------- Team self-registration ----------------
   await as(page, 'Jay (demo, unassigned)');
-  await caption(page, 'Team registration', 'One representative per team registers the team name and teammates (3–4 people)');
+  await caption(page, 'Team registration', 'One representative registers the team: 5 members, each with a role (Pilot, Prompt Crafters, Debugger, Scribe)');
   const form = page.getByRole('region', { name: 'Register your team' });
   await form.getByLabel('Team name').fill('Demo Team Comet');
-  await form.getByLabel('Your name (as it should appear)').fill('Jay');
-  await form.getByLabel('Other team members — one name per line').fill('Kiran\nLeela');
+  for (const [i, n] of ['Jay', 'Kiran', 'Leela', 'Mira', 'Noor'].entries()) await form.getByLabel(`Member ${i + 1} name`).fill(n);
   await form.getByRole('button', { name: 'Register team' }).click();
   await expect(page.getByRole('heading', { name: 'Demo Team Comet' })).toBeVisible();
   await pause(page);

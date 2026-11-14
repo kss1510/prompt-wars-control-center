@@ -64,3 +64,4 @@ td small{display:block}
 .bubble.user{align-self:flex-end;background:#26284c;border:1px solid #3c3f7a}.bubble.bot{align-self:flex-start;background:var(--surface2);border:1px solid var(--border)}.bubble.bot svg{color:var(--teal);margin-top:3px;flex-shrink:0}
 .chat-input{display:flex;gap:8px}.chat-input input{flex:1;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--text)}
 @media(max-width:700px){.ai-criteria li{grid-template-columns:1fr}.bubble{max-width:100%}}
+.roster{border:1px solid var(--border);border-radius:12px;padding:12px 14px 6px;margin:0 0 14px}.roster legend{padding:0 6px;font-weight:600}.roster legend small{font-weight:400}.roster-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}.roster-summary{margin:0 0 10px}.roster select{text-overflow:ellipsis}.roster-row .field{margin-bottom:8px}@media (max-width:560px){.roster-row{grid-template-columns:1fr}}
