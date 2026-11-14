@@ -145,9 +145,11 @@ other teams' work), so the Supabase advisor will keep listing them; they are onl
   is fenced as untrusted data, manipulation attempts are flagged, and the database caps every score. A host
   can re-run the AI for one submission or override any score (human scores always win); all audited.
 - **Free tier:** about 2 AI requests per round (8 for the event). Limits seen on the organizers' project:
-  `gemini-3.8-flash` 5/min, 20/day; `gemini-3.5-flash-lite` and `gemini-3.1-flash-lite` 15/min, 500/day.
-  The judge tries the models in that order and falls through when one is busy or out of quota
-  (override with `GEMINI_JUDGE_MODELS`, comma-separated). Google may use free-tier requests to improve its
+  `gemini-3.1-flash-lite` and `gemini-3.5-flash-lite` 15/min, 500/day; `gemini-3.8-flash` 5/min, 20/day.
+  The judge tries the models in that order (3.1 Flash-Lite answered the live test in about 1 s; 3.8 Flash
+  took over 20 s, so it is the last backup), gives each at most 25 s, and falls through when one is busy,
+  slow or out of quota (override with `GEMINI_JUDGE_MODELS`, comma-separated). **Test the AI connection**
+  checks every model at once and shows each one's result and time. Google may use free-tier requests to improve its
   products — tell participants that submissions are scored with AI assistance (Google Gemini).
 - **Where it runs:** Vercel functions in `api/` (deployed with every push): `ai-score-round.js`,
   `ai-score.js` (host re-run), `ai-test.js` (connection test) and `guardrail-chat.js`. They need

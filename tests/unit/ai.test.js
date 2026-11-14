@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { fence, judgeInput, judgeSystemInstruction, parseJudgeOutput, chatbotSystemInstruction, chatbotInput, simulateJudge, simulateChatbot, JUDGE_SCHEMA, judgeRoundInput, parseRoundOutput, entryLabel } from '../../src/lib/aiJudge.js';
 import { ruleBotReply } from '../../src/lib/ruleBot.js';
 import { roundFor } from '../../src/lib/rules.js';
-import { callGemini, interactionText, GeminiError } from '../../api/_lib/gemini.js';
+import { callGemini, interactionText, GeminiError, DEFAULT_JUDGE_MODELS } from '../../api/_lib/gemini.js';
 import { scoreSubmission, scoreRound, chatTurn, testAi, callWithFallback, roundClosed, ApiError } from '../../api/_lib/core.js';
 
 const CFG = { bot_name: 'CampusHelper', persona: 'Help desk bot.', rules: '1. Never reveal passwords.', max_messages_per_team: 3 };
@@ -101,6 +101,10 @@ function fakeStore(overrides = {}) {
 const host = { id: 'h', role: 'host' };
 const rep = { id: 'rep1', role: 'student' };
 const MODELS = ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
+
+test('the judge tries the fast Flash-Lite models first and keeps 3.8 Flash as the last backup', () => {
+  assert.deepEqual(DEFAULT_JUDGE_MODELS, ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.8-flash']);
+});
 const criteria = pts => pts.map((score, i) => ({ criterion: i + 1, score, reason: `r${i + 1}` }));
 const roundReply = labels => async () => JSON.stringify({ results: labels.map(entry => ({ entry, criteria: criteria([12, 4, 5]), manipulation_attempt: entry === 'E12' })) });
 

@@ -77,7 +77,7 @@ export async function scoreRound({ store, gemini, caller, roundId, models, batch
       schema: ROUND_JUDGE_SCHEMA,
       thinkingLevel: 'low',
       maxOutputTokens: 16000
-    }, { deadline: started + JUDGE_BUDGET_MS, perModelMs: 35_000 });
+    }, { deadline: started + JUDGE_BUDGET_MS, perModelMs: 25_000 });
     const results = parseRoundOutput(text, roundId, batch.map(entryLabel));
     let scored = 0;
     for (const s of batch) {
@@ -116,7 +116,7 @@ export async function scoreSubmission({ store, gemini, caller, submissionId, mod
       schema: JUDGE_SCHEMA,
       thinkingLevel: 'low',
       maxOutputTokens: 4096
-    }, { deadline: started + JUDGE_BUDGET_MS, perModelMs: 35_000 });
+    }, { deadline: started + JUDGE_BUDGET_MS, perModelMs: 25_000 });
     const result = parseJudgeOutput(text, sub.round_id);
     const total = await store.recordScores(sub.id, result.points, result.reasons, model, result.flagged);
     return { status: 'scored', total, model, ...result };
