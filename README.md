@@ -3,6 +3,9 @@
 React + Vite + Supabase operations portal for **Prompt Wars: AI Survival Arena** (ACM GITAM AI/ML Domain).
 Offline event, ~50–60 participants. Date, time and venue: to be confirmed (set them in **Event settings**).
 
+> **Taking over the event?** Read [docs/HANDOVER.md](docs/HANDOVER.md) first (status, access, event-day runbook,
+> fallbacks), then [docs/EVENT-DAY.md](docs/EVENT-DAY.md). Live app: https://prompt-wars-gitam.vercel.app
+
 It manages teams, round submissions, the per-round AI platform rule, judging, scores and the leaderboard.
 The **database** (Postgres row-level security, triggers and RPCs) is the security boundary; the React UI
 only gives friendly feedback.
@@ -205,7 +208,7 @@ npm run test:supabase  # opt-in, STAGING project only — see TESTING-AUTOMATION
 ```
 
 See [TESTING-AUTOMATION.md](TESTING-AUTOMATION.md) for what each suite proves, and
-[docs/EVENT-DAY.md](docs/EVENT-DAY.md) for the event-day runbook.
+[docs/EVENT-DAY.md](docs/EVENT-DAY.md) for the event-day runbook. Co-leads taking over: start with [docs/HANDOVER.md](docs/HANDOVER.md).
 
 ## Deploy
 
