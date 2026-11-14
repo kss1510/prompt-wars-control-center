@@ -64,7 +64,11 @@ function AiSettings({ctx}){
   const count=st=>active.filter(x=>x.ai_status===st).length;
   async function testAi(){
     setTest('Testing…');
-    try { const r=await api.aiTest(); setTest(`Working ✓ — ${r.model} replied “${r.reply}”.`); }
+    try {
+      const r=await api.aiTest();
+      const each=(r.results||[]).map(x=>`${x.model} ${x.ok?`✓ ${(x.ms/1000).toFixed(1)} s`:`✗ ${x.error}`}`).join(' · ');
+      setTest(`Working ✓ — ${r.model} replied “${r.reply}”.${each?` Models: ${each}`:''}`);
+    }
     catch(e){ setTest(`Not working: ${e.message}`); }
   }
   return <section className="panel" aria-label="AI judge settings"><div className="panel-title"><div><h2>AI judge &amp; Round 2 chatbot</h2>

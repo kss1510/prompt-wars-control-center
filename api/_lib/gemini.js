@@ -35,6 +35,8 @@ export async function callGemini({ apiKey, model, system, text, schema, thinking
   };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const t0 = Date.now();
+  const log = outcome => { try { console.log(`[gemini] ${model} ${outcome} ${Date.now() - t0}ms`); } catch { /* logging never breaks a call */ } };
   let res;
   try {
     res = await fetchImpl(ENDPOINT, {
@@ -44,10 +46,12 @@ export async function callGemini({ apiKey, model, system, text, schema, thinking
       signal: controller.signal
     });
   } catch (error) {
-    throw new GeminiError(error?.name === 'AbortError' ? 'The AI took too long to answer.' : 'Could not reach the AI service.', { busy: true });
+    log(error?.name === 'AbortError' ? 'timeout' : 'network-error');
+    throw new GeminiError(error?.name === 'AbortError' ? `took longer than ${Math.round(timeoutMs / 1000)} s` : 'could not reach the AI service', { busy: true });
   } finally {
     clearTimeout(timer);
   }
+  log(`http-${res.status}`);
   if (res.status === 429) throw new GeminiError('The AI is busy (free-tier rate limit). It will be retried shortly.', { status: 429, busy: true });
   if (res.status >= 500) throw new GeminiError(`The AI service had a temporary problem (${res.status}).`, { status: res.status, busy: true });
   const data = await res.json().catch(() => null);

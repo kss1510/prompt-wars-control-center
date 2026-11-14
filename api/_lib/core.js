@@ -22,17 +22,34 @@ const roundOpen = (round, now = Date.now()) =>
 export const roundClosed = (round, now = Date.now()) =>
   Boolean(round) && (round.status === 'closed' || (round.status === 'open' && round.closes_at && now >= new Date(round.closes_at).getTime()));
 
-/** Try each model in turn; move on when one is busy / out of quota / unknown. Returns { text, model }. */
-export async function callWithFallback(gemini, models, opts) {
+// Vercel stops a function at its maxDuration (60 s for scoring, 30 s for chat/test), so every AI call
+// gets a deadline that leaves time to try the next model and still answer the browser.
+export const JUDGE_BUDGET_MS = 50_000;
+export const CHAT_BUDGET_MS = 20_000;
+export const TEST_TIMEOUT_MS = 20_000;
+const MIN_ATTEMPT_MS = 5_000;
+const short = model => String(model).replace(/^gemini-/, '');
+
+/** Try each model in turn before `deadline`; move on when one is busy / out of quota / unknown / slow.
+ *  Returns { text, model }. On failure the error message names what happened to every model tried. */
+export async function callWithFallback(gemini, models, opts, { deadline = Date.now() + JUDGE_BUDGET_MS, perModelMs = 45_000 } = {}) {
+  const tried = [];
   let last;
   for (const model of models) {
-    try { return { text: await gemini({ ...opts, model }), model }; }
+    const left = deadline - Date.now();
+    if (left < MIN_ATTEMPT_MS) break;
+    try { return { text: await gemini({ ...opts, model, timeoutMs: Math.min(perModelMs, left) }), model }; }
     catch (error) {
       last = error;
-      if (!(error.busy || error.status === 404 || error.status === 429)) throw error;
+      tried.push(`${short(model)}: ${error.message}`);
+      if (!(error.busy || error.status === 404 || error.status === 429)) break;
     }
   }
-  throw last || new Error('No AI model is configured.');
+  if (!last) throw Object.assign(new Error(models.length ? 'Ran out of time before the AI could answer.' : 'No AI model is configured.'), { busy: true });
+  const err = new Error(`No AI model answered — ${tried.join(' · ')}`);
+  err.busy = Boolean(last.busy || last.status === 429 || last.status === 404);
+  err.status = last.status;
+  throw err;
 }
 
 /** Score the next batch of unscored submissions in a CLOSED round (host only). */
@@ -48,6 +65,7 @@ export async function scoreRound({ store, gemini, caller, roundId, models, batch
   if (!pending.length) return { scored: 0, remaining: 0 };
   const batch = pending.slice(0, batchSize);
   await Promise.all(batch.map(s => store.markSubmission(s.id, 'scoring', null)));
+  const started = Date.now();
   try {
     const [brief, judgeNotes, transcripts] = await Promise.all([
       store.getBrief(roundId), store.getJudgeNotes(roundId),
@@ -59,7 +77,7 @@ export async function scoreRound({ store, gemini, caller, roundId, models, batch
       schema: ROUND_JUDGE_SCHEMA,
       thinkingLevel: 'low',
       maxOutputTokens: 16000
-    });
+    }, { deadline: started + JUDGE_BUDGET_MS, perModelMs: 35_000 });
     const results = parseRoundOutput(text, roundId, batch.map(entryLabel));
     let scored = 0;
     for (const s of batch) {
@@ -86,6 +104,7 @@ export async function scoreSubmission({ store, gemini, caller, submissionId, mod
   if (!settings?.ai_judging) throw new ApiError(409, 'AI judging is switched off by the host.');
   if (sub.status === 'Rejected') throw new ApiError(409, 'Rejected submissions are not scored.');
   await store.markSubmission(sub.id, 'scoring', null);
+  const started = Date.now();
   try {
     const [round, brief, judgeNotes, transcripts] = await Promise.all([
       store.getRound(sub.round_id), store.getBrief(sub.round_id), store.getJudgeNotes(sub.round_id),
@@ -97,7 +116,7 @@ export async function scoreSubmission({ store, gemini, caller, submissionId, mod
       schema: JUDGE_SCHEMA,
       thinkingLevel: 'low',
       maxOutputTokens: 4096
-    });
+    }, { deadline: started + JUDGE_BUDGET_MS, perModelMs: 35_000 });
     const result = parseJudgeOutput(text, sub.round_id);
     const total = await store.recordScores(sub.id, result.points, result.reasons, model, result.flagged);
     return { status: 'scored', total, model, ...result };
@@ -111,12 +130,22 @@ export async function scoreSubmission({ store, gemini, caller, submissionId, mod
 /** Host: check the Gemini key and which model answers. */
 export async function testAi({ gemini, caller, models }) {
   if (caller?.role !== 'host') throw new ApiError(403, 'Only a host can test the AI connection.');
-  try {
-    const { text, model } = await callWithFallback(gemini, models, { system: 'Reply with exactly: OK', text: 'Connection test. Reply with exactly: OK', thinkingLevel: undefined, maxOutputTokens: 200 });
-    return { ok: true, model, reply: text.trim().slice(0, 80) };
-  } catch (error) {
-    throw new ApiError(error.busy ? 503 : 502, error.message);
+  if (!models.length) throw new ApiError(500, 'No AI model is configured.');
+  const results = await Promise.all(models.map(async model => {
+    const t0 = Date.now();
+    try {
+      const text = await gemini({ model, system: 'Reply with exactly: OK', text: 'Connection test. Reply with exactly: OK', thinkingLevel: 'low', maxOutputTokens: 200, timeoutMs: TEST_TIMEOUT_MS });
+      return { model, ok: true, ms: Date.now() - t0, reply: text.trim().slice(0, 80) };
+    } catch (error) {
+      return { model, ok: false, ms: Date.now() - t0, error: error.message, busy: Boolean(error.busy) };
+    }
+  }));
+  const first = results.find(r => r.ok);
+  if (!first) {
+    const summary = results.map(r => `${short(r.model)}: ${r.error}`).join(' · ');
+    throw new ApiError(results.every(r => r.busy) ? 503 : 502, `No AI model answered — ${summary}`);
   }
+  return { ok: true, model: first.model, reply: first.reply, results: results.map(({ busy, ...r }) => r) };
 }
 
 /** One message to the fictional Round 2 chatbot. Teams' turns are stored as evidence. */
@@ -144,7 +173,7 @@ export async function chatTurn({ store, gemini, caller, message, engine = 'rules
       const history = teamId ? await store.getTranscript(teamId) : [];
       const res = await callWithFallback(gemini, chatModels, {
         system: chatbotSystemInstruction(cfg), text: chatbotInput(cfg, history, text), thinkingLevel: 'minimal', maxOutputTokens: 600
-      });
+      }, { deadline: Date.now() + CHAT_BUDGET_MS, perModelMs: 10_000 });
       reply = res.text;
       used = 'ai';
     } catch { reply = null; /* busy or failing: the built-in bot answers so Round 2 never stalls */ }

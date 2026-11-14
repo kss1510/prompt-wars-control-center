@@ -163,7 +163,32 @@ test('single re-run is host only; AI test reports the model that answered', asyn
   assert.equal(done.total, 21);
   assert.equal(done.model, 'gemini-3.8-flash');
   await assert.rejects(testAi({ gemini: async () => 'OK', caller: rep, models: MODELS }), e => e.status === 403);
-  assert.deepEqual(await testAi({ gemini: async () => 'OK', caller: host, models: MODELS }), { ok: true, model: 'gemini-3.8-flash', reply: 'OK' });
+  const ok = await testAi({ gemini: async () => 'OK', caller: host, models: MODELS });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.model, 'gemini-3.8-flash');
+  assert.equal(ok.results.length, MODELS.length);
+  // One slow / failing model doesn't hide the others: every model is tried at once and reported.
+  const mixed = await testAi({ caller: host, models: MODELS, gemini: async ({ model, timeoutMs }) => {
+    assert.ok(timeoutMs <= 20_000, 'test calls fit inside the 30 s function limit');
+    if (model === 'gemini-3.8-flash') throw Object.assign(new Error('took longer than 20 s'), { busy: true });
+    return 'OK';
+  } });
+  assert.equal(mixed.model, MODELS[1]);
+  assert.match(mixed.results[0].error, /longer than 20 s/);
+  await assert.rejects(testAi({ caller: host, models: MODELS, gemini: async () => { throw Object.assign(new Error('refused (400): bad key'), { status: 400 }); } }),
+    e => e.status === 502 && /No AI model answered — 3\.8-flash: refused \(400\): bad key/.test(e.message));
+});
+
+test('AI calls stay inside the function time limit and say what happened to each model', async () => {
+  const seen = [];
+  const slow = async ({ model, timeoutMs }) => { seen.push([model, timeoutMs]); throw Object.assign(new Error('took longer than 35 s'), { busy: true }); };
+  await assert.rejects(callWithFallback(slow, MODELS, {}, { deadline: Date.now() + 50_000, perModelMs: 35_000 }),
+    e => e.busy && /No AI model answered — 3\.8-flash: took longer/.test(e.message));
+  assert.ok(seen.every(([, ms]) => ms <= 35_000), 'no attempt may outlast its share');
+  // Out of time: later models are skipped instead of running past the deadline.
+  seen.length = 0;
+  await assert.rejects(callWithFallback(slow, MODELS, {}, { deadline: Date.now() + 3_000 }), e => /Ran out of time/.test(e.message));
+  assert.equal(seen.length, 0);
 });
 
 test('built-in chatbot: follows its rules, with two deliberate fictional weaknesses for teams to find', () => {
